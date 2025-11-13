@@ -808,17 +808,16 @@ async def send_media_files(
             title = os.path.splitext(os.path.basename(media_path))[0]
             caption = make_caption(title)
 
-            if method == "send_video":
-                with suppress(Exception):
-                    size = os.path.getsize(media_path)
-                    if size is not None and size > TG_MAX_UPLOAD_BYTES:
-                        size_mb = size / (1024 * 1024)
-                        lim_mb = TG_MAX_UPLOAD_BYTES / (1024 * 1024)
-                        await bot.send_message(
-                            chat_id,
-                            f"⚠️ Видео «{caption}» ({size_mb:.1f} МБ) превышает лимит Telegram ({lim_mb:.0f} МБ). Пропускаю.",
-                        )
-                        continue
+            with suppress(Exception):
+                size = os.path.getsize(media_path)
+                if size and size > TG_MAX_UPLOAD_BYTES:
+                    size_mb = size / (1024 * 1024)
+                    lim_mb = TG_MAX_UPLOAD_BYTES / (1024 * 1024)
+                    await bot.send_message(
+                        chat_id,
+                        f"⚠️ Файл «{caption}» ({size_mb:.1f} МБ) превышает лимит Telegram ({lim_mb:.0f} МБ). Пропускаю.",
+                    )
+                    continue
 
             kwargs: Dict[str, Any] = {
                 "chat_id": chat_id,
