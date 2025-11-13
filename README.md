@@ -78,10 +78,17 @@ python main.py
 
 ## Автозапуск через `systemd` на Ubuntu
 
-1. Создать сервис:
+1. Создать системного пользователя для сервиса и выдать ему права
+
+```bash
+# bash
+sudo useradd --system --home /opt/yt-dlp-telegram-bot --shell /usr/sbin/nologin ytbot || true
+sudo chown -R ytbot:ytbot /opt/yt-dlp-telegram-bot
+```
+
+2. Создать сервис:
 
 ```ini
-# ini
 # файл: /etc/systemd/system/yt-dlp-bot.service
 [Unit]
 Description=yt-dlp Telegram Bot
@@ -89,7 +96,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=ytbot
 WorkingDirectory=/opt/yt-dlp-telegram-bot
 Environment=PYTHONUNBUFFERED=1
 Environment=BOT_TOKEN=ваш_токен_бота
@@ -103,7 +110,7 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-2. Применить и запустить:
+3. Применить и запустить:
 
 ```bash
 # bash
