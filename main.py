@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from dotenv import load_dotenv
 import math
 import tempfile
@@ -265,6 +266,19 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
         return None
 
 
+def norm_base(path: str) -> str:
+    # Сначала убираем хвост после '#', затем отрезаем расширение
+    name = os.path.basename(path)
+    name = name.split('#', 1)[0]
+    base, _ = os.path.splitext(name)
+    return base
+
+
+def extract_id_from_base(base: str) -> Optional[str]:
+    m = re.search(r'\[([0-9A-Za-z_-]{6,})\]', base)
+    return m.group(1) if m else None
+
+
 async def download_media_to_temp(
         url: str,
         convert_to_mp3: bool = True,
@@ -331,24 +345,39 @@ async def download_media_to_temp(
     # Индексируем превью по базовому имени файла
     images_by_base: Dict[str, List[str]] = {}
     for img in image_files:
-        base = os.path.splitext(os.path.basename(img))[0]
-        # Обрезаем возможные хвосты вида "#0", "#1"
-        clean_base = base.split("#")[0]
+        clean_base = norm_base(img)
         images_by_base.setdefault(clean_base, []).append(img)
 
     items: List[Tuple[str, Optional[str]]] = []
     for a in audio_files:
-        base = os.path.splitext(os.path.basename(a))[0]
-        clean_base = base.split("#")[0]
+        a_base = norm_base(a)
         a_dst = os.path.join(stable_dir, os.path.basename(a))
         with suppress(Exception):
             shutil.move(a, a_dst)
 
-        # Берём первую подходящую обложку (по clean_base)
-        possible_imgs = images_by_base.get(clean_base, [])
-        t_src = possible_imgs[0] if possible_imgs else None
-        t_dst: Optional[str] = None
+        # 1) Пытаемся по точному совпадению базового имени
+        possible_imgs = list(images_by_base.get(a_base, []))
 
+        # 2) Фолбэк: ищем по video id из [ID] в имени
+        if not possible_imgs:
+            vid = extract_id_from_base(a_base)
+            if vid:
+                needle = f"[{vid}]"
+                for img in image_files:
+                    name_wo_hash = os.path.basename(img).split('#', 1)[0]
+                    if needle in name_wo_hash:
+                        possible_imgs.append(img)
+
+        # 3) Берём самую крупную картинку (как правило лучшего качества)
+        t_src = None
+        if possible_imgs:
+            try:
+                possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
+            except Exception:
+                pass
+            t_src = possible_imgs[0]
+
+        t_dst: Optional[str] = None
         if t_src and os.path.exists(t_src):
             moved = os.path.join(stable_dir, os.path.basename(t_src))
             with suppress(Exception):
@@ -361,11 +390,7 @@ async def download_media_to_temp(
             if processed and os.path.exists(processed):
                 t_dst = processed
                 try:
-                    logger.info(
-                        "Обложка подготовлена для отправки: %s, size=%d",
-                        processed,
-                        os.path.getsize(processed),
-                    )
+                    logger.info("Обложка подготовлена для отправки: %s, size=%d", processed, os.path.getsize(processed))
                 except Exception:
                     logger.info("Обложка подготовлена для отправки: %s", processed)
             else:
