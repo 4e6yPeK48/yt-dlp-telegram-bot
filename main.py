@@ -32,6 +32,7 @@ MAX_RESULTS = 25
 PAGE_SIZE = 5
 CONCURRENT_DOWNLOADS = 2
 AUDIO_EXTS = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_PLAYLIST_ITEMS = 10  # ограничение длины плейлиста
 
 # ========= Глобальные объекты =========
@@ -194,46 +195,38 @@ def find_audio_files(root: str) -> List[str]:
     return out
 
 
+def find_image_files(root: str) -> List[str]:
+    out: List[str] = []
+    for base, _, files in os.walk(root):
+        for name in files:
+            ext = os.path.splitext(name)[1].lower()
+            if ext in IMAGE_EXTS:
+                out.append(os.path.join(base, name))
+    return out
+
+
 async def download_media_to_temp(
         url: str,
         convert_to_mp3: bool = True,
         cookies_path: Optional[str] = None,
-) -> List[str]:
+) -> List[Tuple[str, Optional[str]]]:
     tmpdir = tempfile.mkdtemp(prefix="dl_")
     # Для плейлистов не запрещаем, yt\-dlp сам решит
     postprocessors = []
     if convert_to_mp3:
         # Конвертируем аудио в mp3, приводим превью к jpg и встраиваем обложку + метаданные
         postprocessors = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            },
-            {
-                "key": "FFmpegThumbnailsConvertor",
-                "format": "jpg",
-            },
-            {
-                "key": "EmbedThumbnail",
-            },
-            {
-                "key": "FFmpegMetadata",
-            },
+            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"},
+            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+            {"key": "EmbedThumbnail"},
+            {"key": "FFmpegMetadata"},
         ]
     else:
         # Даже без конвертации — попытаться встроить обложку и метаданные
         postprocessors = [
-            {
-                "key": "FFmpegThumbnailsConvertor",
-                "format": "jpg",
-            },
-            {
-                "key": "EmbedThumbnail",
-            },
-            {
-                "key": "FFmpegMetadata",
-            },
+            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+            {"key": "EmbedThumbnail"},
+            {"key": "FFmpegMetadata"},
         ]
 
     ydl_opts: Dict[str, Any] = {
@@ -242,8 +235,8 @@ async def download_media_to_temp(
         "outtmpl": os.path.join(tmpdir, "%(title)s [%(id)s].%(ext)s"),
         "noplaylist": False,
         "postprocessors": postprocessors,
-        "writethumbnail": True,          # скачиваем превью
-        "prefer_ffmpeg": True,           # явно использовать ffmpeg
+        "writethumbnail": True,
+        "prefer_ffmpeg": True,
         "nocheckcertificate": True,
         "logger": logging.getLogger("yt_dlp"),
         # Загружаем только первые N элементов плейлиста/канала
@@ -264,45 +257,68 @@ async def download_media_to_temp(
         except Exception as e:
             raise e
 
-    files = find_audio_files(tmpdir)
-    logger.info("Файлов найдено: %d", len(files))
-    if not files:
-        # Если ничего не конвертировалось в mp3, попробуем взять исходники
-        files = find_audio_files(tmpdir)
-    if not files:
-        # Чистим и сообщаем
+    audio_files = find_audio_files(tmpdir)
+    image_files = find_image_files(tmpdir)
+    logger.info("Файлов найдено (audio=%d, images=%d)", len(audio_files), len(image_files))
+    if not audio_files:
         shutil.rmtree(tmpdir, ignore_errors=True)
         return []
 
     # Перенесём файлы в устойчивую temp, чтобы можно было удалить рабочую папку
     stable_dir = tempfile.mkdtemp(prefix="out_")
-    moved: List[str] = []
-    for f in files:
-        dst = os.path.join(stable_dir, os.path.basename(f))
+
+    # Индексируем превью по базовому имени файла
+    images_by_base: Dict[str, str] = {}
+    for img in image_files:
+        base = os.path.splitext(os.path.basename(img))[0]
+        images_by_base[base] = img
+
+    items: List[Tuple[str, Optional[str]]] = []
+    for a in audio_files:
+        base = os.path.splitext(os.path.basename(a))[0]
+        a_dst = os.path.join(stable_dir, os.path.basename(a))
         with suppress(Exception):
-            shutil.move(f, dst)
-            moved.append(dst)
+            shutil.move(a, a_dst)
+
+        # Пытаемся найти превью с тем же базовым именем
+        t_src = images_by_base.get(base)
+        t_dst: Optional[str] = None
+        if t_src and os.path.exists(t_src):
+            candidate = os.path.join(stable_dir, os.path.basename(t_src))
+            with suppress(Exception):
+                shutil.move(t_src, candidate)
+                # Ограничение Telegram: JPEG ≤ ~200 КБ
+                if os.path.getsize(candidate) <= 195 * 1024:
+                    t_dst = candidate
+                else:
+                    # Превью слишком большое — отправим без thumbnail
+                    t_dst = None
+
+        items.append((a_dst, t_dst))
 
     shutil.rmtree(tmpdir, ignore_errors=True)
-    return moved
+    return items
 
 
-async def send_audio_files(bot: Bot, chat_id: int, files: List[str]) -> None:
-    for path in files:
+async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+    for audio_path, thumb_path in items:
         try:
-            logger.info("Отправка файла: %s", path)
-            title = os.path.splitext(os.path.basename(path))[0]
+            logger.info("Отправка файла: %s", audio_path)
+            title = os.path.splitext(os.path.basename(audio_path))[0]
+            thumb_input = FSInputFile(thumb_path) if thumb_path and os.path.exists(thumb_path) else None
             await bot.send_audio(
                 chat_id=chat_id,
-                audio=FSInputFile(path),
+                audio=FSInputFile(audio_path),
                 caption=title,
-                # thumbnail не требуется: обложка уже встроена в mp3
+                thumbnail=thumb_input,
             )
         finally:
             # Удаляем файл после отправки
             with suppress(Exception):
-                os.remove(path)
-            # Небольшая пауза, чтобы не упереться в лимиты
+                os.remove(audio_path)
+            if thumb_path:
+                with suppress(Exception):
+                    os.remove(thumb_path)
             await asyncio.sleep(0.3)
 
 
