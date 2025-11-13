@@ -220,6 +220,9 @@ SETTINGS_TEXT_TO_MODE: Dict[str, str] = {
     "Только видео (без звука)": "video_nosound",
 }
 BACK_BUTTON_TEXT = "⬅ Назад"
+# Добавлено: поддержка распознавания выбора с/без префикса "✅ "
+SETTINGS_TITLES = list(SETTINGS_TEXT_TO_MODE.keys())
+SETTINGS_REPLY_RE = re.compile(r'^(?:✅\s*)?(%s)$' % '|'.join(map(re.escape, SETTINGS_TITLES)))
 
 def build_main_reply_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -231,11 +234,16 @@ def build_main_reply_kb() -> ReplyKeyboardMarkup:
         is_persistent=True,
     )
 
-def build_settings_reply_kb() -> ReplyKeyboardMarkup:
+# Изменено: делаем клавиатуру настроек динамической и помечаем текущий режим "✅"
+def build_settings_reply_kb(user_id: int) -> ReplyKeyboardMarkup:
+    mode = get_user_mode(user_id)
+    rows = []
+    for title, m in SETTINGS_TEXT_TO_MODE.items():
+        prefix = "✅ " if m == mode else ""
+        rows.append([KeyboardButton(text=f"{prefix}{title}")])
+    rows.append([KeyboardButton(text=BACK_BUTTON_TEXT)])
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=t)] for t in SETTINGS_TEXT_TO_MODE.keys()
-        ] + [[KeyboardButton(text=BACK_BUTTON_TEXT)]],
+        keyboard=rows,
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -593,7 +601,7 @@ async def cmd_help(msg: Message) -> None:
 
 @router.message(Command("settings"))
 async def cmd_settings(msg: Message) -> None:
-    await msg.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb())
+    await msg.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb(msg.from_user.id))
 
 
 @router.callback_query(F.data == "settings:open")
@@ -601,17 +609,20 @@ async def cb_settings_open(cb: CallbackQuery) -> None:
     # Открываем меню настроек (reply-клавиатура)
     with suppress(Exception):
         await cb.answer()
-    await cb.message.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb())
+    await cb.message.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb(cb.from_user.id))
 
 
-# Выбор режима через меню настроек (reply-клавиатура)
-@router.message(F.text.in_(list(SETTINGS_TEXT_TO_MODE.keys())))
+# Изменено: обработчик выбора режима через regex (принимает текст с/без "✅")
+@router.message(F.text.regexp(SETTINGS_REPLY_RE))
 async def handle_settings_choice(msg: Message) -> None:
-    mode = SETTINGS_TEXT_TO_MODE.get((msg.text or "").strip())
+    raw = (msg.text or "").strip()
+    if raw.startswith("✅"):
+        raw = raw[1:].strip()
+    mode = SETTINGS_TEXT_TO_MODE.get(raw)
     if not mode:
         return
     set_user_mode(msg.from_user.id, mode)
-    await msg.answer(f"Режим обновлён: {msg.text}", reply_markup=build_settings_reply_kb())
+    await msg.answer(f"Режим обновлён: {raw}", reply_markup=build_settings_reply_kb(msg.from_user.id))
 
 
 # Кнопка "Назад" — вернуться к стартовой клавиатуре
