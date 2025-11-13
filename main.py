@@ -112,7 +112,6 @@ def setup_logging(log_dir: str = "logs") -> None:
 # Инициализация логгера модуля
 logger = logging.getLogger("bot")
 
-
 # ========= Основная логика =========
 def is_url(text: str) -> bool:
     with suppress(Exception):
@@ -248,6 +247,10 @@ def build_settings_reply_kb(user_id: int) -> ReplyKeyboardMarkup:
         is_persistent=True,
     )
 
+async def try_cb_answer(cb: CallbackQuery, text: Optional[str] = None) -> None:
+    with suppress(Exception):
+        await cb.answer(text)
+
 async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: bool) -> Dict[str, Any]:
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
@@ -286,34 +289,25 @@ async def search_tracks(query: str) -> List[Dict[str, Any]]:
     return results
 
 
-def find_audio_files(root: str) -> List[str]:
+def find_files_by_exts(root: str, exts: set) -> List[str]:
     out: List[str] = []
     for base, _, files in os.walk(root):
         for name in files:
-            ext = os.path.splitext(name)[1].lower()
-            if ext in AUDIO_EXTS:
+            if os.path.splitext(name)[1].lower() in exts:
                 out.append(os.path.join(base, name))
     return out
+
+
+def find_audio_files(root: str) -> List[str]:
+    return find_files_by_exts(root, AUDIO_EXTS)
 
 
 def find_video_files(root: str) -> List[str]:
-    out: List[str] = []
-    for base, _, files in os.walk(root):
-        for name in files:
-            ext = os.path.splitext(name)[1].lower()
-            if ext in VIDEO_EXTS:
-                out.append(os.path.join(base, name))
-    return out
+    return find_files_by_exts(root, VIDEO_EXTS)
 
 
 def find_image_files(root: str) -> List[str]:
-    out: List[str] = []
-    for base, _, files in os.walk(root):
-        for name in files:
-            ext = os.path.splitext(name)[1].lower()
-            if ext in IMAGE_EXTS:
-                out.append(os.path.join(base, name))
-    return out
+    return find_files_by_exts(root, IMAGE_EXTS)
 
 
 def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
@@ -512,57 +506,56 @@ async def download_media_to_temp(
     return items
 
 
-async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
-    for audio_path, thumb_path in items:
+async def send_media_files(
+    bot: Bot,
+    chat_id: int,
+    items: List[Tuple[str, Optional[str]]],
+    method: str,
+    media_arg: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    for media_path, thumb_path in items:
         try:
-            logger.info("Отправка файла: %s", audio_path)
-            title = os.path.splitext(os.path.basename(audio_path))[0]
+            title = os.path.splitext(os.path.basename(media_path))[0]
+            kwargs: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "caption": title,
+                media_arg: FSInputFile(media_path),
+            }
             if thumb_path and os.path.exists(thumb_path):
-                try:
-                    size = os.path.getsize(thumb_path)
-                    logger.info("Обложка для трека отправляется: %s (%d байт)", thumb_path, size)
-                except Exception:
-                    logger.info("Обложка для трека отправляется: %s", thumb_path)
-            else:
-                logger.info("Отправка без обложки для: %s", audio_path)
-
-            thumb_input = FSInputFile(thumb_path) if thumb_path and os.path.exists(thumb_path) else None
-            await bot.send_audio(
-                chat_id=chat_id,
-                audio=FSInputFile(audio_path),
-                caption=title,
-                thumbnail=thumb_input,
-            )
+                kwargs["thumbnail"] = FSInputFile(thumb_path)
+            if extra:
+                kwargs.update(extra)
+            await getattr(bot, method)(**kwargs)
         finally:
-            # Удаляем файл после отправки
             with suppress(Exception):
-                os.remove(audio_path)
+                os.remove(media_path)
             if thumb_path:
                 with suppress(Exception):
                     os.remove(thumb_path)
             await asyncio.sleep(0.3)
+
+
+async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+    await send_media_files(bot, chat_id, items, method="send_audio", media_arg="audio")
 
 
 async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
-    for video_path, thumb_path in items:
-        try:
-            logger.info("Отправка видео: %s", video_path)
-            title = os.path.splitext(os.path.basename(video_path))[0]
-            thumb_input = FSInputFile(thumb_path) if thumb_path and os.path.exists(thumb_path) else None
-            await bot.send_video(
-                chat_id=chat_id,
-                video=FSInputFile(video_path),
-                caption=title,
-                thumbnail=thumb_input,
-                supports_streaming=True,
-            )
-        finally:
-            with suppress(Exception):
-                os.remove(video_path)
-            if thumb_path:
-                with suppress(Exception):
-                    os.remove(thumb_path)
-            await asyncio.sleep(0.3)
+    await send_media_files(
+        bot,
+        chat_id,
+        items,
+        method="send_video",
+        media_arg="video",
+        extra={"supports_streaming": True},
+    )
+
+
+async def send_by_mode(bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]) -> None:
+    if mode == "audio":
+        await send_audio_files(bot, chat_id, items)
+    else:
+        await send_video_files(bot, chat_id, items)
 
 
 def remember_cookie_request(user_id: int, kind: str, url: str) -> None:
@@ -606,9 +599,7 @@ async def cmd_settings(msg: Message) -> None:
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
-    # Открываем меню настроек (reply-клавиатура)
-    with suppress(Exception):
-        await cb.answer()
+    await try_cb_answer(cb)
     await cb.message.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb(cb.from_user.id))
 
 
@@ -648,11 +639,9 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
 async def handle_text(msg: Message, bot: Bot) -> None:
     text = (msg.text or "").strip()
     logger.info("Запрос от %s: %s", msg.from_user.id, text[:200])
-
     if not text:
         await msg.answer("Пустой запрос.")
         return
-
     if is_url(text):
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), text)
         await msg.answer("Скачиваю, подождите...")
@@ -661,23 +650,15 @@ async def handle_text(msg: Message, bot: Bot) -> None:
             if not files:
                 await msg.answer("Нечего отправлять.")
                 return
-            if mode == "audio":
-                await send_audio_files(bot, msg.chat.id, files)
-            else:
-                await send_video_files(bot, msg.chat.id, files)
+            await send_by_mode(bot, msg.chat.id, mode, files)
         except DownloadError as e:
             logger.warning("Требуются cookies или ошибка загрузки: %s", e)
             remember_cookie_request(msg.from_user.id, kind="download", url=text)
-            await msg.answer(
-                "Источник требует cookies или произошла ошибка.\n"
-                "Пришлите файл cookies.txt для повтора попытки."
-            )
+            await msg.answer("Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
         except Exception:
             logger.exception("Ошибка при загрузке по URL")
             await msg.answer("Произошла ошибка при загрузке. Попробуйте позже.")
         return
-
-    # Иначе — поиск
     await msg.answer("Ищу треки...")
     try:
         results = await search_tracks(text)
@@ -693,8 +674,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
 
 @router.callback_query(F.data == "noop")
 async def handle_noop(cb: CallbackQuery) -> None:
-    with suppress(Exception):
-        await cb.answer()
+    await try_cb_answer(cb)
 
 
 @router.callback_query(F.data == "cancel")
@@ -703,41 +683,39 @@ async def handle_cancel(cb: CallbackQuery) -> None:
     AWAITING_COOKIES.pop(cb.from_user.id, None)
     with suppress(Exception):
         await cb.message.edit_reply_markup(reply_markup=None)
-    await cb.answer("Отменено.")
+    await try_cb_answer(cb, "Отменено.")
 
 
 @router.callback_query(F.data == "page:next")
 async def handle_next_page(cb: CallbackQuery) -> None:
     state = USER_SEARCHES.get(cb.from_user.id)
     if not state:
-        await cb.answer("Нет активного списка.")
+        await try_cb_answer(cb, "Нет активного списка.")
         return
     results = state["results"]
     page = state.get("page", 0)
     _, pages = slice_page(results, page, PAGE_SIZE)
-    page = (page + 1) % pages
-    state["page"] = page
+    state["page"] = (page + 1) % pages
     kb = build_results_kb(cb.from_user.id)
     with suppress(Exception):
         await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await cb.answer()
+    await try_cb_answer(cb)
 
 
 @router.callback_query(F.data == "page:prev")
 async def handle_prev_page(cb: CallbackQuery) -> None:
     state = USER_SEARCHES.get(cb.from_user.id)
     if not state:
-        await cb.answer("Нет активного списка.")
+        await try_cb_answer(cb, "Нет активного списка.")
         return
     results = state["results"]
     page = state.get("page", 0)
     _, pages = slice_page(results, page, PAGE_SIZE)
-    page = (page - 1 + pages) % pages
-    state["page"] = page
+    state["page"] = (page - 1 + pages) % pages
     kb = build_results_kb(cb.from_user.id)
     with suppress(Exception):
         await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await cb.answer()
+    await try_cb_answer(cb)
 
 
 @router.callback_query(F.data.startswith("pick:"))
@@ -747,38 +725,29 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         idx = int(idx_str)
         state = USER_SEARCHES.get(cb.from_user.id)
         if not state:
-            await cb.answer("Список результатов устарел.")
+            await try_cb_answer(cb, "Список результатов устарел.")
             return
         results: List[Dict[str, Any]] = state["results"]
         if idx < 0 or idx >= len(results):
-            await cb.answer("Некорректный выбор.")
+            await try_cb_answer(cb, "Некорректный выбор.")
             return
         url = results[idx].get("url")
         if not url:
-            await cb.answer("Нет URL для выбранного трека.")
+            await try_cb_answer(cb, "Нет URL для выбранного трека.")
             return
 
         mode = decide_effective_mode(get_user_mode(cb.from_user.id), url)
-        # Вместо всплывающего уведомления — сообщение в чат
-        with suppress(Exception):
-            await cb.answer()
+        await try_cb_answer(cb)
         await bot.send_message(cb.message.chat.id, "Скачиваю выбранный элемент...")
         try:
             files = await download_media_to_temp(url, mode=mode)
             if not files:
                 await bot.send_message(cb.message.chat.id, "Нечего отправлять.")
                 return
-            if mode == "audio":
-                await send_audio_files(bot, cb.message.chat.id, files)
-            else:
-                await send_video_files(bot, cb.message.chat.id, files)
+            await send_by_mode(bot, cb.message.chat.id, mode, files)
         except DownloadError:
             remember_cookie_request(cb.from_user.id, kind="pick", url=url)
-            await bot.send_message(
-                cb.message.chat.id,
-                "Источник требует cookies или произошла ошибка.\n"
-                "Пришлите файл cookies.txt для повтора попытки."
-            )
+            await bot.send_message(cb.message.chat.id, "Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
         except Exception:
             await bot.send_message(cb.message.chat.id, "Ошибка при загрузке выбранного элемента.")
 
@@ -809,10 +778,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         if not files:
             await msg.answer("Не удалось скачать даже с cookies. Скипаю.")
             return
-        if mode == "audio":
-            await send_audio_files(bot, msg.chat.id, files)
-        else:
-            await send_video_files(bot, msg.chat.id, files)
+        await send_by_mode(bot, msg.chat.id, mode, files)
     except Exception:
         await msg.answer("Не удалось скачать даже с cookies. Скипаю.")
 
