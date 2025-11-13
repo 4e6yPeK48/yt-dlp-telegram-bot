@@ -47,6 +47,11 @@ MAX_QUERY_LEN: int = 120
 THUMB_SIZE: Tuple[int, int] = (320, 320)
 THUMB_MAX_BYTES: int = 200 * 1024
 
+CAPTION_MAX_LEN: int = 1000
+TG_MAX_UPLOAD_BYTES: int = int(os.getenv("TG_MAX_UPLOAD_MB", "2048")) * 1024 * 1024
+COOKIES_MAX_BYTES: int = int(os.getenv("COOKIES_MAX_MB", "5")) * 1024 * 1024
+ALLOWED_COOKIES_EXTS: Set[str] = {".txt"}
+
 # ========= Глобальные объекты =========
 router: Router = Router()
 dp: Dispatcher = Dispatcher()
@@ -370,6 +375,15 @@ def sanitize_query(text: str) -> str:
     t = re.sub(r"\s+", " ", t).strip()
     if len(t) > MAX_QUERY_LEN:
         t = t[:MAX_QUERY_LEN]
+    return t
+
+
+def make_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
+    t = re.sub(r"[\x00-\x1f\x7f]", "", text or "")
+    t = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F]", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    if len(t) > limit:
+        t = t[: limit - 1] + "…"
     return t
 
 
@@ -792,9 +806,24 @@ async def send_media_files(
     for media_path, thumb_path in items:
         try:
             title = os.path.splitext(os.path.basename(media_path))[0]
+            caption = make_caption(title)
+
+            if method == "send_video":
+                with suppress(Exception):
+                    size = os.path.getsize(media_path)
+                    if size is not None and size > TG_MAX_UPLOAD_BYTES:
+                        size_mb = size / (1024 * 1024)
+                        lim_mb = TG_MAX_UPLOAD_BYTES / (1024 * 1024)
+                        await bot.send_message(
+                            chat_id,
+                            f"⚠️ Видео «{caption}» ({size_mb:.1f} МБ) превышает лимит Telegram ({lim_mb:.0f} МБ). Пропускаю.",
+                        )
+                        continue
+
             kwargs: Dict[str, Any] = {
                 "chat_id": chat_id,
-                "caption": title,
+                "caption": caption,
+                "parse_mode": None,
                 media_arg: FSInputFile(media_path),
             }
             if thumb_path and os.path.exists(thumb_path):
@@ -809,6 +838,13 @@ async def send_media_files(
                 with suppress(Exception):
                     os.remove(thumb_path)
             await asyncio.sleep(0.3)
+
+    parents = {os.path.dirname(p) for p, _ in items}
+    for d in parents:
+        base = os.path.basename(d)
+        if base.startswith("out_"):
+            with suppress(Exception):
+                shutil.rmtree(d, ignore_errors=True)
 
 
 async def send_audio_files(
@@ -1244,11 +1280,38 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     if doc is None:
         await msg.answer("❌ Не удалось прочитать файл.")
         return
+
+    name_l = (doc.file_name or "").lower()
+    ext = os.path.splitext(name_l)[1]
+    size = doc.file_size or 0
+    if ext not in ALLOWED_COOKIES_EXTS:
+        await msg.answer("⚠️ Нужен файл cookies в формате Netscape: cookies.txt.")
+        return
+    if size and size > COOKIES_MAX_BYTES:
+        lim_mb = COOKIES_MAX_BYTES / (1024 * 1024)
+        cur_mb = size / (1024 * 1024)
+        await msg.answer(
+            f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
+        )
+        return
+
     try:
         await bot.download(doc, destination=cookies_path)
     except Exception:
         await msg.answer("❌ Не удалось сохранить cookies.txt.")
         return
+
+    with suppress(Exception):
+        real_size = os.path.getsize(cookies_path)
+        if real_size > COOKIES_MAX_BYTES:
+            lim_mb = COOKIES_MAX_BYTES / (1024 * 1024)
+            cur_mb = real_size / (1024 * 1024)
+            with suppress(Exception):
+                os.remove(cookies_path)
+            await msg.answer(
+                f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
+            )
+            return
 
     await msg.answer("🍪 Cookies получены. Пробую снова...")
 
