@@ -329,28 +329,32 @@ async def download_media_to_temp(
     stable_dir = tempfile.mkdtemp(prefix="out_")
 
     # Индексируем превью по базовому имени файла
-    images_by_base: Dict[str, str] = {}
+    images_by_base: Dict[str, List[str]] = {}
     for img in image_files:
         base = os.path.splitext(os.path.basename(img))[0]
-        images_by_base[base] = img
+        # Обрезаем возможные хвосты вида "#0", "#1"
+        clean_base = base.split("#")[0]
+        images_by_base.setdefault(clean_base, []).append(img)
 
     items: List[Tuple[str, Optional[str]]] = []
     for a in audio_files:
         base = os.path.splitext(os.path.basename(a))[0]
+        clean_base = base.split("#")[0]
         a_dst = os.path.join(stable_dir, os.path.basename(a))
         with suppress(Exception):
             shutil.move(a, a_dst)
 
-        # Пытаемся найти превью с тем же базовым именем и привести его к требованиям
-        t_src = images_by_base.get(base)
+        # Берём первую подходящую обложку (по clean_base)
+        possible_imgs = images_by_base.get(clean_base, [])
+        t_src = possible_imgs[0] if possible_imgs else None
         t_dst: Optional[str] = None
+
         if t_src and os.path.exists(t_src):
             moved = os.path.join(stable_dir, os.path.basename(t_src))
             with suppress(Exception):
                 shutil.move(t_src, moved)
             logger.info("Обрабатываю обложку для трека: %s", moved)
             processed = process_thumbnail(moved, stable_dir)
-            # Удалим оригинал превью, если это другой файл
             if os.path.exists(moved) and (not processed or processed != moved):
                 with suppress(Exception):
                     os.remove(moved)
