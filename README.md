@@ -18,106 +18,106 @@
    - В папку, например `C:\Users\...\PycharmProjects\yt-dlp-telegram-bot`.
 3. Создать виртуальное окружение и установить зависимости:
 
-```powershell
-# PowerShell
-git clone https://github.com/4e6yPeK48/yt-dlp-telegram-bot yt-dlp-telegram-bot
-cd .\yt-dlp-telegram-bot\
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-pip install -r requirements.txt
-```
+    ```powershell
+    # PowerShell
+    git clone https://github.com/4e6yPeK48/yt-dlp-telegram-bot yt-dlp-telegram-bot
+    cd .\yt-dlp-telegram-bot\
+    python -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    python -m pip install -U pip
+    pip install -r requirements.txt
+    ```
 
 4. Установить `BOT_TOKEN` и запустить:
 
-```powershell
-# PowerShell
-$env:BOT_TOKEN="ваш_токен_бота"
-python .\main.py
-```
+    ```powershell
+    # PowerShell
+    $env:BOT_TOKEN="ваш_токен_бота"
+    python .\main.py
+    ```
 
 5. Постоянная установка токена (по желанию):
-
-```powershell
-# PowerShell (сделает переменную постоянной)
-setx BOT_TOKEN "ваш_токен_бота"
-```
+    
+   ```powershell
+   # PowerShell (сделает переменную постоянной)
+   setx BOT_TOKEN "ваш_токен_бота"
+   ```
 
 ## Установка на Ubuntu
 
 1. Установить пакеты:
 
-```bash
-# bash
-sudo apt update
-sudo apt install -y python3-venv python3-pip ffmpeg git
-```
+    ```bash
+    # bash
+    sudo apt update
+    sudo apt install -y python3-venv python3-pip ffmpeg git
+    ```
 
 2. Развернуть проект:
 
-```bash
-# bash
-sudo mkdir -p /opt
-cd /opt
-sudo git clone https://github.com/4e6yPeK48/yt-dlp-telegram-bot
-sudo chown -R $USER:$USER /opt/yt-dlp-telegram-bot
-cd /opt/yt-dlp-telegram-bot
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-```
+    ```bash
+    # bash
+    sudo mkdir -p /opt
+    cd /opt
+    sudo git clone https://github.com/4e6yPeK48/yt-dlp-telegram-bot
+    sudo chown -R $USER:$USER /opt/yt-dlp-telegram-bot
+    cd /opt/yt-dlp-telegram-bot
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -U pip
+    pip install -r requirements.txt
+    ```
 
 3. Запуск вручную:
 
-```bash
-# bash
-export BOT_TOKEN="ваш_токен_бота"
-python main.py
-```
+    ```bash
+    # bash
+    export BOT_TOKEN="ваш_токен_бота"
+    python main.py
+    ```
 
 ## Автозапуск через `systemd` на Ubuntu
 
 1. Создать системного пользователя для сервиса и выдать ему права
 
-```bash
-# bash
-sudo useradd --system --home /opt/yt-dlp-telegram-bot --shell /usr/sbin/nologin ytbot || true
-sudo chown -R ytbot:ytbot /opt/yt-dlp-telegram-bot
-```
+    ```bash
+    # bash
+    sudo useradd --system --home /opt/yt-dlp-telegram-bot --shell /usr/sbin/nologin ytbot || true
+    sudo chown -R ytbot:ytbot /opt/yt-dlp-telegram-bot
+    ```
 
 2. Создать сервис:
 
-```ini
-# файл: /etc/systemd/system/yt-dlp-bot.service
-[Unit]
-Description=yt-dlp Telegram Bot
-After=network.target
-
-[Service]
-Type=simple
-User=ytbot
-WorkingDirectory=/opt/yt-dlp-telegram-bot
-Environment=PYTHONUNBUFFERED=1
-Environment=BOT_TOKEN=ваш_токен_бота
-ExecStart=/opt/yt-dlp-telegram-bot/.venv/bin/python /opt/yt-dlp-telegram-bot/main.py
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
+    ```text
+    # файл: /etc/systemd/system/yt-dlp-bot.service
+    [Unit]
+    Description=yt-dlp Telegram Bot
+    After=network.target
+    
+    [Service]
+    Type=simple
+    User=ytbot
+    WorkingDirectory=/opt/yt-dlp-telegram-bot
+    Environment=PYTHONUNBUFFERED=1
+    Environment=BOT_TOKEN=ваш_токен_бота
+    ExecStart=/opt/yt-dlp-telegram-bot/.venv/bin/python /opt/yt-dlp-telegram-bot/main.py
+    Restart=on-failure
+    RestartSec=5
+    StandardOutput=journal
+    StandardError=journal
+    
+    [Install]
+    WantedBy=multi-user.target
+    ```
 
 3. Применить и запустить:
 
-```bash
-# bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now yt-dlp-bot
-systemctl status yt-dlp-bot
-```
+    ```bash
+    # bash
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now yt-dlp-bot
+    systemctl status yt-dlp-bot
+    ```
 
 ## Логи
 
@@ -126,11 +126,11 @@ systemctl status yt-dlp-bot
    - Ротация по полуночи, хранится 7 копий.
 2. Просмотр:
 
-```bash
-# bash
-tail -f logs/app.info.log
-journalctl -u yt-dlp-bot -f
-```
+    ```bash
+    # bash
+    tail -f logs/app.info.log
+    journalctl -u yt-dlp-bot -f
+    ```
 
 ## Cookies и временные файлы
 
