@@ -813,11 +813,24 @@ async def send_media_files(
                 if size and size > TG_MAX_UPLOAD_BYTES:
                     size_mb = size / (1024 * 1024)
                     lim_mb = TG_MAX_UPLOAD_BYTES / (1024 * 1024)
-                    await bot.send_message(
-                        chat_id,
-                        f"⚠️ Файл «{caption}» ({size_mb:.1f} МБ) превышает лимит Telegram ({lim_mb:.0f} МБ). Пропускаю.",
+                    logger.info(
+                        "Готовлюсь отправлять файл: %s (%.2f МБ, лимит %.0f МБ)",
+                        title,
+                        size_mb,
+                        lim_mb,
                     )
-                    continue
+                    if size > TG_MAX_UPLOAD_BYTES:
+                        logger.warning(
+                            "Пропускаю файл: %s (%.2f МБ) — превышает лимит Telegram (%.0f МБ)",
+                            title,
+                            size_mb,
+                            lim_mb,
+                        )
+                        await bot.send_message(
+                            chat_id,
+                            f"⚠️ Файл «{caption}» ({size_mb:.1f} МБ) превышает лимит Telegram ({lim_mb:.0f} МБ). Пропускаю.",
+                        )
+                        continue
 
             kwargs: Dict[str, Any] = {
                 "chat_id": chat_id,
