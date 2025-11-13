@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
 import logging
 from logging.handlers import TimedRotatingFileHandler
+import io
+from PIL import Image, ImageOps
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import CommandStart, Command
@@ -34,6 +36,10 @@ CONCURRENT_DOWNLOADS = 2
 AUDIO_EXTS = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_PLAYLIST_ITEMS = 10  # ограничение длины плейлиста
+
+# Требования к обложке для Telegram
+THUMB_SIZE = (320, 320)
+THUMB_MAX_BYTES = 200 * 1024
 
 # ========= Глобальные объекты =========
 router = Router()
@@ -205,6 +211,60 @@ def find_image_files(root: str) -> List[str]:
     return out
 
 
+def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
+    """
+    Приводит картинку к требованиям Telegram: 320x320, JPEG, <= 200KB.
+    Возвращает путь к сжатому файлу или None при неудаче.
+    """
+    try:
+        with Image.open(src_path) as im:
+            im = im.convert("RGB")
+            im = ImageOps.fit(im, THUMB_SIZE, method=Image.LANCZOS)
+            quality = 90
+            min_q = 40
+            step = 5
+            out_path = os.path.join(
+                out_dir,
+                f"{os.path.splitext(os.path.basename(src_path))[0]}_320.jpg",
+            )
+            last_size = None
+            while quality >= min_q:
+                buf = io.BytesIO()
+                im.save(
+                    buf,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True,
+                    progressive=True,
+                    subsampling="4:2:0",
+                )
+                size = buf.tell()
+                if size <= THUMB_MAX_BYTES:
+                    with open(out_path, "wb") as f:
+                        f.write(buf.getvalue())
+                    logging.getLogger("bot").info(
+                        "Подготовлена обложка %s (%dx%d, %d байт, quality=%d)",
+                        out_path,
+                        THUMB_SIZE[0],
+                        THUMB_SIZE[1],
+                        size,
+                        quality,
+                    )
+                    return out_path
+                last_size = size
+                quality -= step
+            logging.getLogger("bot").warning(
+                "Не удалось сжать обложку до %d байт, пропускаю (минимальное качество %d, размер %d байт)",
+                THUMB_MAX_BYTES,
+                min_q,
+                last_size or -1,
+            )
+            return None
+    except Exception as e:
+        logging.getLogger("bot").warning("Не удалось обработать обложку %s: %s", src_path, e)
+        return None
+
+
 async def download_media_to_temp(
         url: str,
         convert_to_mp3: bool = True,
@@ -280,19 +340,31 @@ async def download_media_to_temp(
         with suppress(Exception):
             shutil.move(a, a_dst)
 
-        # Пытаемся найти превью с тем же базовым именем
+        # Пытаемся найти превью с тем же базовым именем и привести его к требованиям
         t_src = images_by_base.get(base)
         t_dst: Optional[str] = None
         if t_src and os.path.exists(t_src):
-            candidate = os.path.join(stable_dir, os.path.basename(t_src))
+            moved = os.path.join(stable_dir, os.path.basename(t_src))
             with suppress(Exception):
-                shutil.move(t_src, candidate)
-                # Ограничение Telegram: JPEG ≤ ~200 КБ
-                if os.path.getsize(candidate) <= 195 * 1024:
-                    t_dst = candidate
-                else:
-                    # Превью слишком большое — отправим без thumbnail
-                    t_dst = None
+                shutil.move(t_src, moved)
+            logger.info("Обрабатываю обложку для трека: %s", moved)
+            processed = process_thumbnail(moved, stable_dir)
+            # Удалим оригинал превью, если это другой файл
+            if os.path.exists(moved) and (not processed or processed != moved):
+                with suppress(Exception):
+                    os.remove(moved)
+            if processed and os.path.exists(processed):
+                t_dst = processed
+                try:
+                    logger.info(
+                        "Обложка подготовлена для отправки: %s, size=%d",
+                        processed,
+                        os.path.getsize(processed),
+                    )
+                except Exception:
+                    logger.info("Обложка подготовлена для отправки: %s", processed)
+            else:
+                logger.warning("Обложка не будет отправлена для %s", a_dst)
 
         items.append((a_dst, t_dst))
 
@@ -305,6 +377,15 @@ async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Option
         try:
             logger.info("Отправка файла: %s", audio_path)
             title = os.path.splitext(os.path.basename(audio_path))[0]
+            if thumb_path and os.path.exists(thumb_path):
+                try:
+                    size = os.path.getsize(thumb_path)
+                    logger.info("Обложка для трека отправляется: %s (%d байт)", thumb_path, size)
+                except Exception:
+                    logger.info("Обложка для трека отправляется: %s", thumb_path)
+            else:
+                logger.info("Отправка без обложки для: %s", audio_path)
+
             thumb_input = FSInputFile(thumb_path) if thumb_path and os.path.exists(thumb_path) else None
             await bot.send_audio(
                 chat_id=chat_id,
