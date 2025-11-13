@@ -37,6 +37,8 @@ CONCURRENT_DOWNLOADS = 2
 AUDIO_EXTS = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_PLAYLIST_ITEMS = 10  # ограничение длины плейлиста
+# Добавлены видеорасширения
+VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
 
 # Требования к обложке для Telegram
 THUMB_SIZE = (320, 320)
@@ -60,6 +62,8 @@ AWAITING_COOKIES: Dict[int, Dict[str, Any]] = {}
 COOKIES_DIR = os.path.join(os.getcwd(), "cookies")
 os.makedirs(COOKIES_DIR, exist_ok=True)
 
+# user_id -> {"mode": "auto"|"audio"|"video"|"video_nosound"}
+USER_SETTINGS: Dict[int, Dict[str, str]] = {}
 
 # ========= Логирование =========
 def setup_logging(log_dir: str = "logs") -> None:
@@ -123,6 +127,39 @@ def slice_page(items: List[Any], page: int, page_size: int) -> Tuple[List[Any], 
     return items[start:end], pages
 
 
+def get_user_mode(user_id: int) -> str:
+    st = USER_SETTINGS.get(user_id)
+    return (st or {}).get("mode", "auto")
+
+
+def set_user_mode(user_id: int, mode: str) -> None:
+    USER_SETTINGS[user_id] = {"mode": mode}
+
+
+def is_audio_platform(url: str) -> bool:
+    """
+    Эвристика: music.youtube и популярные аудиоплощадки — аудио; иначе — видео.
+    """
+    try:
+        u = urlparse(url)
+        host = (u.netloc or "").lower()
+        path = (u.path or "").lower()
+    except Exception:
+        return False
+    audio_hosts = [
+        "music.youtube.", "soundcloud.com", "bandcamp.com", "mixcloud.com",
+        "audius.co", "hearthis.at", "promodj.com", "music.yandex.", "yandex.ru/music",
+        "deezer.com", "napster.com"
+    ]
+    return any(h in host for h in audio_hosts) or "/music" in path
+
+
+def decide_effective_mode(user_mode: str, url: str) -> str:
+    if user_mode == "auto":
+        return "audio" if is_audio_platform(url) else "video"
+    return user_mode
+
+
 def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
     state = USER_SEARCHES.get(user_id) or {}
     results: List[Dict[str, Any]] = state.get("results", [])
@@ -150,7 +187,26 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
             InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="noop"),
             InlineKeyboardButton(text="Вперёд »", callback_data="page:next"),
         )
+    # Добавляем кнопку настроек
+    kb.row(InlineKeyboardButton(text="Настройки ⚙️", callback_data="settings:open"))
     kb.row(InlineKeyboardButton(text="Отмена", callback_data="cancel"))
+    return kb
+
+
+def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
+    mode = get_user_mode(user_id)
+    text = {
+        "auto": "Автоопределение",
+        "audio": "Только аудио",
+        "video": "Только видео (со звуком)",
+        "video_nosound": "Только видео (без звука)",
+    }
+    kb = InlineKeyboardBuilder()
+    for m in ["auto", "audio", "video", "video_nosound"]:
+        pref = "✅ " if mode == m else "• "
+        kb.button(text=pref + text[m], callback_data=f"setmode:{m}")
+    kb.adjust(1)
+    kb.row(InlineKeyboardButton(text="Закрыть", callback_data="settings:close"))
     return kb
 
 
@@ -198,6 +254,16 @@ def find_audio_files(root: str) -> List[str]:
         for name in files:
             ext = os.path.splitext(name)[1].lower()
             if ext in AUDIO_EXTS:
+                out.append(os.path.join(base, name))
+    return out
+
+
+def find_video_files(root: str) -> List[str]:
+    out: List[str] = []
+    for base, _, files in os.walk(root):
+        for name in files:
+            ext = os.path.splitext(name)[1].lower()
+            if ext in VIDEO_EXTS:
                 out.append(os.path.join(base, name))
     return out
 
@@ -281,31 +347,49 @@ def extract_id_from_base(base: str) -> Optional[str]:
 
 async def download_media_to_temp(
         url: str,
-        convert_to_mp3: bool = True,
+        mode: str,
         cookies_path: Optional[str] = None,
 ) -> List[Tuple[str, Optional[str]]]:
+    """
+    Возвращает список (path, thumb_path). Для mode:
+      - "audio": отдаёт аудиофайлы
+      - "video"/"video_nosound": отдаёт видеофайлы
+    """
     tmpdir = tempfile.mkdtemp(prefix="dl_")
-    # Для плейлистов не запрещаем, yt\-dlp сам решит
-    postprocessors = []
-    if convert_to_mp3:
-        # Конвертируем аудио в mp3, приводим превью к jpg и встраиваем обложку + метаданные
+    # Постпроцессоры под режим
+    if mode == "audio":
         postprocessors = [
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"},
             {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
             {"key": "EmbedThumbnail"},
             {"key": "FFmpegMetadata"},
         ]
-    else:
-        # Даже без конвертации — попытаться встроить обложку и метаданные
+        ydl_format = "bestaudio/best"
+        extra: Dict[str, Any] = {}
+    elif mode == "video":
         postprocessors = [
             {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
-            {"key": "EmbedThumbnail"},
             {"key": "FFmpegMetadata"},
         ]
+        # Лучшее качество видео+аудио, при возможности объединяем в mp4
+        ydl_format = "bv*+ba/b"
+        extra = {
+            "merge_output_format": "mp4",
+            "recode_video": "mp4",
+        }
+    else:  # "video_nosound"
+        postprocessors = [
+            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+            {"key": "FFmpegMetadata"},
+        ]
+        ydl_format = "bestvideo/best"
+        extra = {
+            "recode_video": "mp4",
+        }
 
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
-        "format": "bestaudio/best",
+        "format": ydl_format,
         "outtmpl": os.path.join(tmpdir, "%(title)s [%(id)s].%(ext)s"),
         "noplaylist": False,
         "postprocessors": postprocessors,
@@ -317,50 +401,47 @@ async def download_media_to_temp(
         "logger": logging.getLogger("yt_dlp"),
         "playlist_items": f"1-{MAX_PLAYLIST_ITEMS}",
         "max_downloads": MAX_PLAYLIST_ITEMS,
+        **extra,
     }
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
 
-    # Выполняем в пуле потоков, под семафором
     async with download_sem:
         try:
-            logger.info("Начало загрузки: %s", url)
+            logger.info("Начало загрузки (%s): %s", mode, url)
             await ytdlp_extract(url, ydl_opts, download=True)
         except DownloadError as e:
-            # Пробрасываем выше, чтобы обработчик попросил cookies
             raise e
         except Exception as e:
             raise e
 
-    audio_files = find_audio_files(tmpdir)
+    if mode == "audio":
+        media_files = find_audio_files(tmpdir)
+    else:
+        media_files = find_video_files(tmpdir)
     image_files = find_image_files(tmpdir)
-    logger.info("Файлов найдено (audio=%d, images=%d)", len(audio_files), len(image_files))
-    if not audio_files:
+    logger.info("Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files))
+    if not media_files:
         shutil.rmtree(tmpdir, ignore_errors=True)
         return []
 
-    # Перенесём файлы в устойчивую temp, чтобы можно было удалить рабочую папку
     stable_dir = tempfile.mkdtemp(prefix="out_")
 
-    # Индексируем превью по базовому имени файла
     images_by_base: Dict[str, List[str]] = {}
     for img in image_files:
         clean_base = norm_base(img)
         images_by_base.setdefault(clean_base, []).append(img)
 
     items: List[Tuple[str, Optional[str]]] = []
-    for a in audio_files:
-        a_base = norm_base(a)
-        a_dst = os.path.join(stable_dir, os.path.basename(a))
+    for m in media_files:
+        m_base = norm_base(m)
+        m_dst = os.path.join(stable_dir, os.path.basename(m))
         with suppress(Exception):
-            shutil.move(a, a_dst)
+            shutil.move(m, m_dst)
 
-        # 1) Пытаемся по точному совпадению базового имени
-        possible_imgs = list(images_by_base.get(a_base, []))
-
-        # 2) Фолбэк: ищем по video id из [ID] в имени
+        possible_imgs = list(images_by_base.get(m_base, []))
         if not possible_imgs:
-            vid = extract_id_from_base(a_base)
+            vid = extract_id_from_base(m_base)
             if vid:
                 needle = f"[{vid}]"
                 for img in image_files:
@@ -368,13 +449,10 @@ async def download_media_to_temp(
                     if needle in name_wo_hash:
                         possible_imgs.append(img)
 
-        # 3) Берём самую крупную картинку (как правило лучшего качества)
         t_src = None
         if possible_imgs:
-            try:
+            with suppress(Exception):
                 possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
-            except Exception:
-                pass
             t_src = possible_imgs[0]
 
         t_dst: Optional[str] = None
@@ -382,21 +460,15 @@ async def download_media_to_temp(
             moved = os.path.join(stable_dir, os.path.basename(t_src))
             with suppress(Exception):
                 shutil.move(t_src, moved)
-            logger.info("Обрабатываю обложку для трека: %s", moved)
+            logger.info("Обрабатываю обложку: %s", moved)
             processed = process_thumbnail(moved, stable_dir)
             if os.path.exists(moved) and (not processed or processed != moved):
                 with suppress(Exception):
                     os.remove(moved)
             if processed and os.path.exists(processed):
                 t_dst = processed
-                try:
-                    logger.info("Обложка подготовлена для отправки: %s, size=%d", processed, os.path.getsize(processed))
-                except Exception:
-                    logger.info("Обложка подготовлена для отправки: %s", processed)
-            else:
-                logger.warning("Обложка не будет отправлена для %s", a_dst)
 
-        items.append((a_dst, t_dst))
+        items.append((m_dst, t_dst))
 
     shutil.rmtree(tmpdir, ignore_errors=True)
     return items
@@ -433,6 +505,28 @@ async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Option
             await asyncio.sleep(0.3)
 
 
+async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+    for video_path, thumb_path in items:
+        try:
+            logger.info("Отправка видео: %s", video_path)
+            title = os.path.splitext(os.path.basename(video_path))[0]
+            thumb_input = FSInputFile(thumb_path) if thumb_path and os.path.exists(thumb_path) else None
+            await bot.send_video(
+                chat_id=chat_id,
+                video=FSInputFile(video_path),
+                caption=title,
+                thumbnail=thumb_input,
+                supports_streaming=True,
+            )
+        finally:
+            with suppress(Exception):
+                os.remove(video_path)
+            if thumb_path:
+                with suppress(Exception):
+                    os.remove(thumb_path)
+            await asyncio.sleep(0.3)
+
+
 def remember_cookie_request(user_id: int, kind: str, url: str) -> None:
     AWAITING_COOKIES[user_id] = {"kind": kind, "url": url, "asked": True}
 
@@ -444,9 +538,10 @@ def get_user_cookies_path(user_id: int) -> str:
 @router.message(CommandStart())
 async def cmd_start(msg: Message) -> None:
     await msg.answer(
-        "Отправьте ссылку на трек/плейлист — скачаю и пришлю аудио с обложкой (в плейлисте до 10 треков).\n"
-        "Или отправьте название трека — покажу список из 25 результатов.\n"
-        "Если трек требует cookies, пришлите файл `cookies.txt`."
+        "Отправьте ссылку — скачаю по вашим настройкам (лучшее качество). Плейлисты до 10.\n"
+        "Или отправьте название — покажу список из 25 результатов.\n"
+        "Команда: /settings — выбрать тип скачивания.\n"
+        "Если нужен доступ — пришлите файл cookies.txt."
     )
 
 
@@ -454,10 +549,45 @@ async def cmd_start(msg: Message) -> None:
 async def cmd_help(msg: Message) -> None:
     await msg.answer(
         "Как пользоваться:\n"
-        "• Ссылка → скачивание аудио (mp3 по умолчанию) с встраиванием обложки. Плейлисты ограничены 10 треками.\n"
+        "• Ссылка → скачивание по выбранному режиму (авто/аудио/видео/видео без звука).\n"
         "• Текст запроса → 25 результатов, 5 страниц по 5 кнопок.\n"
-        "• Если просит cookies — отправьте `cookies.txt`."
+        "• /settings — сменить тип скачивания.\n"
+        "• Если просит cookies — отправьте cookies.txt."
     )
+
+
+@router.message(Command("settings"))
+async def cmd_settings(msg: Message) -> None:
+    kb = build_settings_kb(msg.from_user.id)
+    await msg.answer("Настройки типа скачивания:", reply_markup=kb.as_markup())
+
+
+@router.callback_query(F.data == "settings:open")
+async def cb_settings_open(cb: CallbackQuery) -> None:
+    kb = build_settings_kb(cb.from_user.id)
+    with suppress(Exception):
+        await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
+    await cb.answer()
+
+
+@router.callback_query(F.data == "settings:close")
+async def cb_settings_close(cb: CallbackQuery) -> None:
+    with suppress(Exception):
+        await cb.message.edit_reply_markup(reply_markup=None)
+    await cb.answer("Закрыто.")
+
+
+@router.callback_query(F.data.startswith("setmode:"))
+async def cb_set_mode(cb: CallbackQuery) -> None:
+    mode = cb.data.split(":", 1)[1]
+    if mode not in {"auto", "audio", "video", "video_nosound"}:
+        await cb.answer("Неизвестный режим.")
+        return
+    set_user_mode(cb.from_user.id, mode)
+    kb = build_settings_kb(cb.from_user.id)
+    with suppress(Exception):
+        await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
+    await cb.answer("Режим обновлён.")
 
 
 @router.message(F.text)
@@ -469,22 +599,24 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         await msg.answer("Пустой запрос.")
         return
 
-    # Если это URL — качаем
     if is_url(text):
+        mode = decide_effective_mode(get_user_mode(msg.from_user.id), text)
         await msg.answer("Скачиваю, подождите...")
         try:
-            files = await download_media_to_temp(text, convert_to_mp3=True)
+            files = await download_media_to_temp(text, mode=mode)
             if not files:
-                await msg.answer("Не удалось получить аудио файлы.")
+                await msg.answer("Нечего отправлять.")
                 return
-            await send_audio_files(bot, msg.chat.id, files)
+            if mode == "audio":
+                await send_audio_files(bot, msg.chat.id, files)
+            else:
+                await send_video_files(bot, msg.chat.id, files)
         except DownloadError as e:
-            # Просим cookies и запоминаем задание
             logger.warning("Требуются cookies или ошибка загрузки: %s", e)
             remember_cookie_request(msg.from_user.id, kind="download", url=text)
             await msg.answer(
                 "Источник требует cookies или произошла ошибка.\n"
-                "Пришлите файл `cookies.txt` для повтора попытки."
+                "Пришлите файл cookies.txt для повтора попытки."
             )
         except Exception:
             logger.exception("Ошибка при загрузке по URL")
@@ -572,22 +704,26 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             await cb.answer("Нет URL для выбранного трека.")
             return
 
-        await cb.answer("Скачиваю выбранный трек...")
+        mode = decide_effective_mode(get_user_mode(cb.from_user.id), url)
+        await cb.answer("Скачиваю выбранный элемент...")
         try:
-            files = await download_media_to_temp(url, convert_to_mp3=True)
+            files = await download_media_to_temp(url, mode=mode)
             if not files:
-                await bot.send_message(cb.message.chat.id, "Не удалось получить аудио файл.")
+                await bot.send_message(cb.message.chat.id, "Нечего отправлять.")
                 return
-            await send_audio_files(bot, cb.message.chat.id, files)
+            if mode == "audio":
+                await send_audio_files(bot, cb.message.chat.id, files)
+            else:
+                await send_video_files(bot, cb.message.chat.id, files)
         except DownloadError:
             remember_cookie_request(cb.from_user.id, kind="pick", url=url)
             await bot.send_message(
                 cb.message.chat.id,
                 "Источник требует cookies или произошла ошибка.\n"
-                "Пришлите файл `cookies.txt` для повтора попытки."
+                "Пришлите файл cookies.txt для повтора попытки."
             )
         except Exception:
-            await bot.send_message(cb.message.chat.id, "Ошибка при загрузке выбранного трека.")
+            await bot.send_message(cb.message.chat.id, "Ошибка при загрузке выбранного элемента.")
 
 
 @router.message(F.document)
@@ -608,16 +744,18 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     await msg.answer("Cookies получены. Пробую снова...")
 
     url = pending.get("url")
-    kind = pending.get("kind")
-    # Один раз пробуем с cookies, затем забываем запрос
     AWAITING_COOKIES.pop(msg.from_user.id, None)
 
     try:
-        files = await download_media_to_temp(url, convert_to_mp3=True, cookies_path=cookies_path)
+        mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
+        files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
             await msg.answer("Не удалось скачать даже с cookies. Скипаю.")
             return
-        await send_audio_files(bot, msg.chat.id, files)
+        if mode == "audio":
+            await send_audio_files(bot, msg.chat.id, files)
+        else:
+            await send_video_files(bot, msg.chat.id, files)
     except Exception:
         await msg.answer("Не удалось скачать даже с cookies. Скипаю.")
 
