@@ -20,6 +20,8 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     FSInputFile,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
@@ -187,7 +189,7 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
             InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="noop"),
             InlineKeyboardButton(text="Вперёд »", callback_data="page:next"),
         )
-    # Добавляем кнопку настроек
+    # Добавляем кнопку настроек (откроет меню настроек reply-клавиатуры)
     kb.row(InlineKeyboardButton(text="Настройки ⚙️", callback_data="settings:open"))
     kb.row(InlineKeyboardButton(text="Отмена", callback_data="cancel"))
     return kb
@@ -209,6 +211,34 @@ def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.row(InlineKeyboardButton(text="Закрыть", callback_data="settings:close"))
     return kb
 
+# ==== Новая постоянная стартовая клавиатура и меню настроек (ReplyKeyboard) ====
+MAIN_BUTTONS = ["/start", "/help", "/settings"]
+SETTINGS_TEXT_TO_MODE: Dict[str, str] = {
+    "Автоопределение": "auto",
+    "Только аудио": "audio",
+    "Только видео (со звуком)": "video",
+    "Только видео (без звука)": "video_nosound",
+}
+BACK_BUTTON_TEXT = "⬅ Назад"
+
+def build_main_reply_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="/start"), KeyboardButton(text="/help")],
+            [KeyboardButton(text="/settings")],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+def build_settings_reply_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t)] for t in SETTINGS_TEXT_TO_MODE.keys()
+        ] + [[KeyboardButton(text=BACK_BUTTON_TEXT)]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: bool) -> Dict[str, Any]:
     def _run() -> Dict[str, Any]:
@@ -537,11 +567,15 @@ def get_user_cookies_path(user_id: int) -> str:
 
 @router.message(CommandStart())
 async def cmd_start(msg: Message) -> None:
+    # Сброс локального состояния пользователя
+    USER_SEARCHES.pop(msg.from_user.id, None)
+    AWAITING_COOKIES.pop(msg.from_user.id, None)
     await msg.answer(
         "Отправьте ссылку — скачаю по вашим настройкам (лучшее качество). Плейлисты до 10.\n"
         "Или отправьте название — покажу список из 25 результатов.\n"
         "Команда: /settings — выбрать тип скачивания.\n"
-        "Если нужен доступ — пришлите файл cookies.txt."
+        "Если нужен доступ — пришлите файл cookies.txt.",
+        reply_markup=build_main_reply_kb(),
     )
 
 
@@ -552,29 +586,38 @@ async def cmd_help(msg: Message) -> None:
         "• Ссылка → скачивание по выбранному режиму (авто/аудио/видео/видео без звука).\n"
         "• Текст запроса → 25 результатов, 5 страниц по 5 кнопок.\n"
         "• /settings — сменить тип скачивания.\n"
-        "• Если просит cookies — отправьте cookies.txt."
+        "• Если просит cookies — отправьте cookies.txt.",
+        reply_markup=build_main_reply_kb(),
     )
 
 
 @router.message(Command("settings"))
 async def cmd_settings(msg: Message) -> None:
-    kb = build_settings_kb(msg.from_user.id)
-    await msg.answer("Настройки типа скачивания:", reply_markup=kb.as_markup())
+    await msg.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb())
 
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
-    kb = build_settings_kb(cb.from_user.id)
+    # Открываем меню настроек (reply-клавиатура)
     with suppress(Exception):
-        await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await cb.answer()
+        await cb.answer()
+    await cb.message.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb())
 
 
-@router.callback_query(F.data == "settings:close")
-async def cb_settings_close(cb: CallbackQuery) -> None:
-    with suppress(Exception):
-        await cb.message.edit_reply_markup(reply_markup=None)
-    await cb.answer("Закрыто.")
+# Выбор режима через меню настроек (reply-клавиатура)
+@router.message(F.text.in_(list(SETTINGS_TEXT_TO_MODE.keys())))
+async def handle_settings_choice(msg: Message) -> None:
+    mode = SETTINGS_TEXT_TO_MODE.get((msg.text or "").strip())
+    if not mode:
+        return
+    set_user_mode(msg.from_user.id, mode)
+    await msg.answer(f"Режим обновлён: {msg.text}", reply_markup=build_settings_reply_kb())
+
+
+# Кнопка "Назад" — вернуться к стартовой клавиатуре
+@router.message(F.text == BACK_BUTTON_TEXT)
+async def handle_settings_back(msg: Message) -> None:
+    await msg.answer("Возврат к начальной клавиатуре.", reply_markup=build_main_reply_kb())
 
 
 @router.callback_query(F.data.startswith("setmode:"))
@@ -705,7 +748,10 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             return
 
         mode = decide_effective_mode(get_user_mode(cb.from_user.id), url)
-        await cb.answer("Скачиваю выбранный элемент...")
+        # Вместо всплывающего уведомления — сообщение в чат
+        with suppress(Exception):
+            await cb.answer()
+        await bot.send_message(cb.message.chat.id, "Скачиваю выбранный элемент...")
         try:
             files = await download_media_to_temp(url, mode=mode)
             if not files:
