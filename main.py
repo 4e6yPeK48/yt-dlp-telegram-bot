@@ -38,11 +38,11 @@ PAGE_SIZE = 5
 CONCURRENT_DOWNLOADS = 2
 AUDIO_EXTS = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-MAX_PLAYLIST_ITEMS = 10  # ограничение длины плейлиста
-# Добавлены видеорасширения
+MAX_PLAYLIST_ITEMS = 10
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+DURATION_LIMIT_SEC = 30 * 60
+MAX_QUERY_LEN = 120
 
-# Требования к обложке для Telegram
 THUMB_SIZE = (320, 320)
 THUMB_MAX_BYTES = 200 * 1024
 
@@ -52,20 +52,12 @@ dp = Dispatcher()
 dp.include_router(router)
 download_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 
-# user_id -> {"results": List[Dict], "page": int}
 USER_SEARCHES: Dict[int, Dict[str, Any]] = {}
-
-# user_id -> pending action payload:
-#   {"kind": "download", "url": str, "asked": bool}
-#   {"kind": "pick", "url": str, "asked": bool}
 AWAITING_COOKIES: Dict[int, Dict[str, Any]] = {}
-
-# user_id -> saved cookies file path
 COOKIES_DIR = os.path.join(os.getcwd(), "cookies")
 os.makedirs(COOKIES_DIR, exist_ok=True)
-
-# user_id -> {"mode": "auto"|"audio"|"video"|"video_nosound"}
 USER_SETTINGS: Dict[int, Dict[str, str]] = {}
+USER_LOCKS: Dict[int, asyncio.Lock] = {}
 
 # ========= Логирование =========
 def setup_logging(log_dir: str = "logs") -> None:
@@ -251,6 +243,32 @@ async def try_cb_answer(cb: CallbackQuery, text: Optional[str] = None) -> None:
     with suppress(Exception):
         await cb.answer(text)
 
+def sanitize_query(text: str) -> str:
+    t = re.sub(r'[\x00-\x1f\x7f]', '', text)
+    t = re.sub(r'[\u200B-\u200F\u202A-\u202E\u2060-\u206F]', '', t)
+    t = re.sub(r'\s+', ' ', t).strip()
+    if len(t) > MAX_QUERY_LEN:
+        t = t[:MAX_QUERY_LEN]
+    return t
+
+def get_user_lock(user_id: int) -> asyncio.Lock:
+    lock = USER_LOCKS.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        USER_LOCKS[user_id] = lock
+    return lock
+
+async def begin_user_download(user_id: int) -> Optional[asyncio.Lock]:
+    lock = get_user_lock(user_id)
+    if lock.locked():
+        return None
+    await lock.acquire()
+    return lock
+
+def end_user_download(lock: Optional[asyncio.Lock]) -> None:
+    if lock and lock.locked():
+        lock.release()
+
 async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: bool) -> Dict[str, Any]:
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
@@ -271,21 +289,15 @@ async def search_tracks(query: str) -> List[Dict[str, Any]]:
     entries = info.get("entries") or []
     results: List[Dict[str, Any]] = []
     for e in entries:
-        # Нормализуем URL
+        duration = e.get("duration")
+        if isinstance(duration, (int, float)) and duration > DURATION_LIMIT_SEC:
+            continue
         url = e.get("webpage_url") or e.get("url")
         if not url and e.get("id"):
             url = f"https://www.youtube.com/watch?v={e['id']}"
         title = e.get("title") or "Без названия"
-        duration = e.get("duration")  # в секундах, может быть None
         channel = e.get("uploader") or e.get("channel") or ""
-        results.append(
-            {
-                "title": title,
-                "url": url,
-                "duration": duration,
-                "channel": channel,
-            }
-        )
+        results.append({"title": title, "url": url, "duration": duration, "channel": channel})
     return results
 
 
@@ -377,6 +389,15 @@ def extract_id_from_base(base: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def make_duration_match_filter(max_seconds: int):
+    def _mf(info: Dict[str, Any]):
+        dur = info.get("duration")
+        if isinstance(dur, (int, float)) and dur > max_seconds:
+            return f"duration>{max_seconds}"
+        return None
+    return _mf
+
+
 async def download_media_to_temp(
         url: str,
         mode: str,
@@ -405,19 +426,14 @@ async def download_media_to_temp(
         ]
         # Лучшее качество видео+аудио, при возможности объединяем в mp4
         ydl_format = "bv*+ba/b"
-        extra = {
-            "merge_output_format": "mp4",
-            "recode_video": "mp4",
-        }
+        extra = {"merge_output_format": "mp4", "recode_video": "mp4"}
     else:  # "video_nosound"
         postprocessors = [
             {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
             {"key": "FFmpegMetadata"},
         ]
         ydl_format = "bestvideo/best"
-        extra = {
-            "recode_video": "mp4",
-        }
+        extra = {"recode_video": "mp4"}
 
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
@@ -433,6 +449,7 @@ async def download_media_to_temp(
         "logger": logging.getLogger("yt_dlp"),
         "playlist_items": f"1-{MAX_PLAYLIST_ITEMS}",
         "max_downloads": MAX_PLAYLIST_ITEMS,
+        "match_filter": make_duration_match_filter(DURATION_LIMIT_SEC),
         **extra,
     }
     if cookies_path and os.path.exists(cookies_path):
@@ -637,18 +654,23 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
 
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
-    text = (msg.text or "").strip()
+    raw = (msg.text or "").strip()
+    text = raw
     logger.info("Запрос от %s: %s", msg.from_user.id, text[:200])
     if not text:
         await msg.answer("Пустой запрос.")
         return
     if is_url(text):
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), text)
+        lock = await begin_user_download(msg.from_user.id)
+        if not lock:
+            await msg.answer("Идёт другая загрузка. Дождитесь завершения.")
+            return
         await msg.answer("Скачиваю, подождите...")
         try:
             files = await download_media_to_temp(text, mode=mode)
             if not files:
-                await msg.answer("Нечего отправлять.")
+                await msg.answer("Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
                 return
             await send_by_mode(bot, msg.chat.id, mode, files)
         except DownloadError as e:
@@ -658,13 +680,19 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         except Exception:
             logger.exception("Ошибка при загрузке по URL")
             await msg.answer("Произошла ошибка при загрузке. Попробуйте позже.")
+        finally:
+            end_user_download(lock)
+        return
+    query = sanitize_query(text)
+    if not query:
+        await msg.answer("Некорректный запрос.")
         return
     await msg.answer("Ищу треки...")
     try:
-        results = await search_tracks(text)
+        results = await search_tracks(query)
         USER_SEARCHES[msg.from_user.id] = {"results": results, "page": 0}
         if not results:
-            await msg.answer("Ничего не найдено.")
+            await msg.answer("Ничего не найдено (или превышен лимит длительности).")
             return
         kb = build_results_kb(msg.from_user.id)
         await msg.answer("Результаты поиска:", reply_markup=kb.as_markup())
@@ -737,12 +765,16 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             return
 
         mode = decide_effective_mode(get_user_mode(cb.from_user.id), url)
+        lock = await begin_user_download(cb.from_user.id)
+        if not lock:
+            await try_cb_answer(cb, "Загрузка уже выполняется.")
+            return
         await try_cb_answer(cb)
         await bot.send_message(cb.message.chat.id, "Скачиваю выбранный элемент...")
         try:
             files = await download_media_to_temp(url, mode=mode)
             if not files:
-                await bot.send_message(cb.message.chat.id, "Нечего отправлять.")
+                await bot.send_message(cb.message.chat.id, "Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
                 return
             await send_by_mode(bot, cb.message.chat.id, mode, files)
         except DownloadError:
@@ -750,6 +782,8 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             await bot.send_message(cb.message.chat.id, "Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
         except Exception:
             await bot.send_message(cb.message.chat.id, "Ошибка при загрузке выбранного элемента.")
+        finally:
+            end_user_download(lock)
 
 
 @router.message(F.document)
@@ -771,20 +805,25 @@ async def handle_document(msg: Message, bot: Bot) -> None:
 
     url = pending.get("url")
     AWAITING_COOKIES.pop(msg.from_user.id, None)
-
+    lock = await begin_user_download(msg.from_user.id)
+    if not lock:
+        await msg.answer("Идёт другая загрузка. Дождитесь завершения.")
+        return
     try:
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
         files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
-            await msg.answer("Не удалось скачать даже с cookies. Скипаю.")
+            await msg.answer("Не удалось скачать даже с cookies (возможно, превышен лимит длительности).")
             return
         await send_by_mode(bot, msg.chat.id, mode, files)
     except Exception:
         await msg.answer("Не удалось скачать даже с cookies. Скипаю.")
+    finally:
+        end_user_download(lock)
 
 
 async def main() -> None:
-    setup_logging()  # <= добавьте
+    setup_logging()
     if not BOT_TOKEN:
         raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
     bot = Bot(
