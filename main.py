@@ -203,11 +203,38 @@ async def download_media_to_temp(
     # Для плейлистов не запрещаем, yt\-dlp сам решит
     postprocessors = []
     if convert_to_mp3:
-        postprocessors = [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }]
+        # Конвертируем аудио в mp3, приводим превью к jpg и встраиваем обложку + метаданные
+        postprocessors = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            },
+            {
+                "key": "FFmpegThumbnailsConvertor",
+                "format": "jpg",
+            },
+            {
+                "key": "EmbedThumbnail",
+            },
+            {
+                "key": "FFmpegMetadata",
+            },
+        ]
+    else:
+        # Даже без конвертации — попытаться встроить обложку и метаданные
+        postprocessors = [
+            {
+                "key": "FFmpegThumbnailsConvertor",
+                "format": "jpg",
+            },
+            {
+                "key": "EmbedThumbnail",
+            },
+            {
+                "key": "FFmpegMetadata",
+            },
+        ]
 
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
@@ -215,6 +242,8 @@ async def download_media_to_temp(
         "outtmpl": os.path.join(tmpdir, "%(title)s [%(id)s].%(ext)s"),
         "noplaylist": False,
         "postprocessors": postprocessors,
+        "writethumbnail": True,          # скачиваем превью
+        "prefer_ffmpeg": True,           # явно использовать ffmpeg
         "nocheckcertificate": True,
         "logger": logging.getLogger("yt_dlp"),
         # Загружаем только первые N элементов плейлиста/канала
@@ -267,6 +296,7 @@ async def send_audio_files(bot: Bot, chat_id: int, files: List[str]) -> None:
                 chat_id=chat_id,
                 audio=FSInputFile(path),
                 caption=title,
+                # thumbnail не требуется: обложка уже встроена в mp3
             )
         finally:
             # Удаляем файл после отправки
@@ -287,7 +317,7 @@ def get_user_cookies_path(user_id: int) -> str:
 @router.message(CommandStart())
 async def cmd_start(msg: Message) -> None:
     await msg.answer(
-        "Отправьте ссылку на трек/плейлист — скачаю и пришлю аудио (в плейлисте до 10 треков).\n"
+        "Отправьте ссылку на трек/плейлист — скачаю и пришлю аудио с обложкой (в плейлисте до 10 треков).\n"
         "Или отправьте название трека — покажу список из 25 результатов.\n"
         "Если трек требует cookies, пришлите файл `cookies.txt`."
     )
@@ -297,7 +327,7 @@ async def cmd_start(msg: Message) -> None:
 async def cmd_help(msg: Message) -> None:
     await msg.answer(
         "Как пользоваться:\n"
-        "• Ссылка → скачивание аудио (mp3 по умолчанию). Плейлисты ограничены 10 треками.\n"
+        "• Ссылка → скачивание аудио (mp3 по умолчанию) с встраиванием обложки. Плейлисты ограничены 10 треками.\n"
         "• Текст запроса → 25 результатов, 5 страниц по 5 кнопок.\n"
         "• Если просит cookies — отправьте `cookies.txt`."
     )
