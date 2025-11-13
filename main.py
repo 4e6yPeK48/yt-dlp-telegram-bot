@@ -820,7 +820,7 @@ async def send_media_files(
                         lim_mb,
                     )
                     if size > TG_MAX_UPLOAD_BYTES:
-                        logger.warning(
+                        logger.info(
                             "Пропускаю файл: %s (%.2f МБ) — превышает лимит Telegram (%.0f МБ)",
                             title,
                             size_mb,
