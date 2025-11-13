@@ -48,7 +48,7 @@ THUMB_SIZE: Tuple[int, int] = (320, 320)
 THUMB_MAX_BYTES: int = 200 * 1024
 
 CAPTION_MAX_LEN: int = 1000
-TG_MAX_UPLOAD_BYTES: int = int(os.getenv("TG_MAX_UPLOAD_MB", "2048")) * 1024 * 1024
+TG_MAX_UPLOAD_BYTES: int = int(os.getenv("TG_MAX_UPLOAD_MB", "50")) * 1024 * 1024
 COOKIES_MAX_BYTES: int = int(os.getenv("COOKIES_MAX_MB", "5")) * 1024 * 1024
 ALLOWED_COOKIES_EXTS: Set[str] = {".txt"}
 
