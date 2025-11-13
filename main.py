@@ -1,17 +1,14 @@
-"""
-8221150427:AAGUBlaFCHQfKhSn3dpM9xsUDlhT6aOP0jA
-"""
-
-
-# main.py
 import asyncio
 import os
+from dotenv import load_dotenv
 import math
 import tempfile
 import shutil
 from contextlib import suppress
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
+import logging
+from logging.handlers import TimedRotatingFileHandler
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import CommandStart, Command
@@ -22,12 +19,15 @@ from aiogram.types import (
     FSInputFile,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.client.default import DefaultBotProperties
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 # ========= Настройки =========
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Установите переменную окружения BOT_TOKEN
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 MAX_RESULTS = 25
 PAGE_SIZE = 5
 CONCURRENT_DOWNLOADS = 2
@@ -52,6 +52,53 @@ COOKIES_DIR = os.path.join(os.getcwd(), "cookies")
 os.makedirs(COOKIES_DIR, exist_ok=True)
 
 
+# ========= Логирование =========
+def setup_logging(log_dir: str = "logs") -> None:
+    os.makedirs(log_dir, exist_ok=True)
+
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    def make_rotating(path: str, level: int) -> TimedRotatingFileHandler:
+        handler = TimedRotatingFileHandler(
+            filename=os.path.join(log_dir, path),
+            when="midnight",
+            backupCount=7,
+            encoding="utf-8",
+        )
+        handler.setLevel(level)
+        handler.setFormatter(fmt)
+        return handler
+
+    # Корневой логгер
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.handlers.clear()
+
+    # Консоль INFO+
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    # Отдельные файлы по уровням
+    root.addHandler(make_rotating("app.debug.log", logging.DEBUG))
+    root.addHandler(make_rotating("app.info.log", logging.INFO))
+    root.addHandler(make_rotating("app.warn.log", logging.WARNING))
+    root.addHandler(make_rotating("app.error.log", logging.ERROR))
+
+    # Сторонние логгеры
+    logging.getLogger("aiogram").setLevel(logging.INFO)
+    logging.getLogger("aiohttp").setLevel(logging.INFO)
+    logging.getLogger("yt_dlp").setLevel(logging.INFO)
+
+
+# Инициализация логгера модуля
+logger = logging.getLogger("bot")
+
+
+# ========= Основная логика =========
 def is_url(text: str) -> bool:
     with suppress(Exception):
         u = urlparse(text.strip())
@@ -102,6 +149,7 @@ async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: b
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url_or_query, download=download)
+
     return await asyncio.to_thread(_run)
 
 
@@ -146,14 +194,10 @@ def find_audio_files(root: str) -> List[str]:
 
 
 async def download_media_to_temp(
-    url: str,
-    convert_to_mp3: bool = True,
-    cookies_path: Optional[str] = None,
+        url: str,
+        convert_to_mp3: bool = True,
+        cookies_path: Optional[str] = None,
 ) -> List[str]:
-    """
-    Скачивает трек или плейлист в temp\-директорию.
-    Возвращает список путей к аудио файлам.
-    """
     tmpdir = tempfile.mkdtemp(prefix="dl_")
     # Для плейлистов не запрещаем, yt\-dlp сам решит
     postprocessors = []
@@ -171,6 +215,7 @@ async def download_media_to_temp(
         "noplaylist": False,
         "postprocessors": postprocessors,
         "nocheckcertificate": True,
+        "logger": logging.getLogger("yt_dlp"),
     }
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
@@ -178,6 +223,7 @@ async def download_media_to_temp(
     # Выполняем в пуле потоков, под семафором
     async with download_sem:
         try:
+            logger.info("Начало загрузки: %s", url)
             await ytdlp_extract(url, ydl_opts, download=True)
         except DownloadError as e:
             # Пробрасываем выше, чтобы обработчик попросил cookies
@@ -186,6 +232,7 @@ async def download_media_to_temp(
             raise e
 
     files = find_audio_files(tmpdir)
+    logger.info("Файлов найдено: %d", len(files))
     if not files:
         # Если ничего не конвертировалось в mp3, попробуем взять исходники
         files = find_audio_files(tmpdir)
@@ -210,6 +257,7 @@ async def download_media_to_temp(
 async def send_audio_files(bot: Bot, chat_id: int, files: List[str]) -> None:
     for path in files:
         try:
+            logger.info("Отправка файла: %s", path)
             title = os.path.splitext(os.path.basename(path))[0]
             await bot.send_audio(
                 chat_id=chat_id,
@@ -254,6 +302,7 @@ async def cmd_help(msg: Message) -> None:
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
     text = (msg.text or "").strip()
+    logger.info("Запрос от %s: %s", msg.from_user.id, text[:200])
 
     if not text:
         await msg.answer("Пустой запрос.")
@@ -268,14 +317,16 @@ async def handle_text(msg: Message, bot: Bot) -> None:
                 await msg.answer("Не удалось получить аудио файлы.")
                 return
             await send_audio_files(bot, msg.chat.id, files)
-        except DownloadError:
+        except DownloadError as e:
             # Просим cookies и запоминаем задание
+            logger.warning("Требуются cookies или ошибка загрузки: %s", e)
             remember_cookie_request(msg.from_user.id, kind="download", url=text)
             await msg.answer(
                 "Источник требует cookies или произошла ошибка.\n"
                 "Пришлите файл `cookies.txt` для повтора попытки."
             )
         except Exception:
+            logger.exception("Ошибка при загрузке по URL")
             await msg.answer("Произошла ошибка при загрузке. Попробуйте позже.")
         return
 
@@ -411,9 +462,14 @@ async def handle_document(msg: Message, bot: Bot) -> None:
 
 
 async def main() -> None:
+    setup_logging()  # <= добавьте
     if not BOT_TOKEN:
         raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
-    bot = Bot(BOT_TOKEN, parse_mode="HTML")
+    bot = Bot(
+        BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode="HTML"),
+    )
+    logger.info("Старт поллинга")
     await dp.start_polling(bot)
 
 
