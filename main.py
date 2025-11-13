@@ -296,10 +296,11 @@ async def download_media_to_temp(
         "noplaylist": False,
         "postprocessors": postprocessors,
         "writethumbnail": True,
+        "write_all_thumbnails": True,
+        "convert_thumbnails": "jpg",
         "prefer_ffmpeg": True,
         "nocheckcertificate": True,
         "logger": logging.getLogger("yt_dlp"),
-        # Загружаем только первые N элементов плейлиста/канала
         "playlist_items": f"1-{MAX_PLAYLIST_ITEMS}",
         "max_downloads": MAX_PLAYLIST_ITEMS,
     }
