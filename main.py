@@ -7,7 +7,7 @@ import tempfile
 import shutil
 from contextlib import suppress
 from urllib.parse import urlparse
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Pattern
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import io
@@ -32,37 +32,41 @@ from yt_dlp.utils import DownloadError
 # ========= Настройки =========
 load_dotenv()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-MAX_RESULTS = 25
-PAGE_SIZE = 5
-CONCURRENT_DOWNLOADS = 2
-AUDIO_EXTS = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-MAX_PLAYLIST_ITEMS = 10
-VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
-DURATION_LIMIT_SEC = 30 * 60
-MAX_QUERY_LEN = 120
+BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
+MAX_RESULTS: int = 25
+PAGE_SIZE: int = 5
+CONCURRENT_DOWNLOADS: int = 2
+AUDIO_EXTS: Set[str] = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
+IMAGE_EXTS: Set[str] = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_PLAYLIST_ITEMS: int = 10
+VIDEO_EXTS: Set[str] = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+DURATION_LIMIT_SEC: int = 30 * 60
+MAX_QUERY_LEN: int = 120
 
-THUMB_SIZE = (320, 320)
-THUMB_MAX_BYTES = 200 * 1024
+THUMB_SIZE: Tuple[int, int] = (320, 320)
+THUMB_MAX_BYTES: int = 200 * 1024
 
 # ========= Глобальные объекты =========
-router = Router()
-dp = Dispatcher()
+router: Router = Router()
+dp: Dispatcher = Dispatcher()
 dp.include_router(router)
-download_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
+download_sem: asyncio.Semaphore = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 
 USER_SEARCHES: Dict[int, Dict[str, Any]] = {}
 AWAITING_COOKIES: Dict[int, Dict[str, Any]] = {}
-COOKIES_DIR = os.path.join(os.getcwd(), "cookies")
+COOKIES_DIR: str = os.path.join(os.getcwd(), "cookies")
 os.makedirs(COOKIES_DIR, exist_ok=True)
 USER_SETTINGS: Dict[int, Dict[str, str]] = {}
 USER_LOCKS: Dict[int, asyncio.Lock] = {}
 
 # ========= Логирование =========
 def setup_logging(log_dir: str = "logs") -> None:
-    os.makedirs(log_dir, exist_ok=True)
+    """Настраивает логирование: консоль и ротация по уровням.
 
+    Args:
+        log_dir: Директория для файлов логов.
+    """
+    os.makedirs(log_dir, exist_ok=True)
     fmt = logging.Formatter(
         "%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
@@ -78,34 +82,37 @@ def setup_logging(log_dir: str = "logs") -> None:
         handler.setFormatter(fmt)
         return handler
 
-    # Корневой логгер
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     root.handlers.clear()
 
-    # Консоль INFO+
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(fmt)
     root.addHandler(console)
 
-    # Отдельные файлы по уровням
     root.addHandler(make_rotating("app.debug.log", logging.DEBUG))
     root.addHandler(make_rotating("app.info.log", logging.INFO))
     root.addHandler(make_rotating("app.warn.log", logging.WARNING))
     root.addHandler(make_rotating("app.error.log", logging.ERROR))
 
-    # Сторонние логгеры
     logging.getLogger("aiogram").setLevel(logging.INFO)
     logging.getLogger("aiohttp").setLevel(logging.INFO)
     logging.getLogger("yt_dlp").setLevel(logging.INFO)
 
 
-# Инициализация логгера модуля
-logger = logging.getLogger("bot")
+logger: logging.Logger = logging.getLogger("bot")
 
 # ========= Основная логика =========
 def is_url(text: str) -> bool:
+    """Проверяет, является ли строка URL со схемой http/https.
+
+    Args:
+        text: Исходная строка.
+
+    Returns:
+        True, если строка похожа на URL, иначе False.
+    """
     with suppress(Exception):
         u = urlparse(text.strip())
         return u.scheme in {"http", "https"} and bool(u.netloc)
@@ -113,6 +120,16 @@ def is_url(text: str) -> bool:
 
 
 def slice_page(items: List[Any], page: int, page_size: int) -> Tuple[List[Any], int]:
+    """Возвращает элементы выбранной страницы и общее число страниц.
+
+    Args:
+        items: Полный список элементов.
+        page: Номер страницы (0-индексация).
+        page_size: Размер страницы.
+
+    Returns:
+        Кортеж (элементы текущей страницы, всего страниц).
+    """
     pages = max(1, math.ceil(len(items) / page_size))
     page = max(0, min(page, pages - 1))
     start = page * page_size
@@ -121,17 +138,36 @@ def slice_page(items: List[Any], page: int, page_size: int) -> Tuple[List[Any], 
 
 
 def get_user_mode(user_id: int) -> str:
+    """Возвращает режим пользователя.
+
+    Args:
+        user_id: Идентификатор пользователя Telegram.
+
+    Returns:
+        Один из: 'auto', 'audio', 'video', 'video_nosound'.
+    """
     st = USER_SETTINGS.get(user_id)
     return (st or {}).get("mode", "auto")
 
 
 def set_user_mode(user_id: int, mode: str) -> None:
+    """Сохраняет режим пользователя.
+
+    Args:
+        user_id: Идентификатор пользователя.
+        mode: Режим ('auto'|'audio'|'video'|'video_nosound').
+    """
     USER_SETTINGS[user_id] = {"mode": mode}
 
 
 def is_audio_platform(url: str) -> bool:
-    """
-    Эвристика: music.youtube и популярные аудиоплощадки — аудио; иначе — видео.
+    """Эвристика определения аудио-площадки.
+
+    Args:
+        url: URL ресурса.
+
+    Returns:
+        True, если сайт предположительно аудио-ориентированный.
     """
     try:
         u = urlparse(url)
@@ -142,18 +178,35 @@ def is_audio_platform(url: str) -> bool:
     audio_hosts = [
         "music.youtube.", "soundcloud.com", "bandcamp.com", "mixcloud.com",
         "audius.co", "hearthis.at", "promodj.com", "music.yandex.", "yandex.ru/music",
-        "deezer.com", "napster.com"
+        "deezer.com", "napster.com",
     ]
     return any(h in host for h in audio_hosts) or "/music" in path
 
 
 def decide_effective_mode(user_mode: str, url: str) -> str:
+    """Определяет итоговый режим скачивания.
+
+    Args:
+        user_mode: Выбранный пользователем режим.
+        url: URL источника.
+
+    Returns:
+        Режим ('audio'|'video'|'video_nosound').
+    """
     if user_mode == "auto":
         return "audio" if is_audio_platform(url) else "video"
     return user_mode
 
 
 def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
+    """Строит инлайн-клавиатуру с результатами поиска и пагинацией.
+
+    Args:
+        user_id: Идентификатор пользователя.
+
+    Returns:
+        Экземпляр InlineKeyboardBuilder.
+    """
     state = USER_SEARCHES.get(user_id) or {}
     results: List[Dict[str, Any]] = state.get("results", [])
     page: int = state.get("page", 0)
@@ -164,7 +217,6 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
     for idx, entry in enumerate(current):
         global_index = page * PAGE_SIZE + idx
         title = entry.get("title") or "Без названия"
-        # Укорачиваем подпись кнопки
         if len(title) > 64:
             title = title[:61] + "..."
         kb.button(text=title, callback_data=f"pick:{global_index}")
@@ -173,26 +225,32 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
         kb.button(text="Нет результатов", callback_data="noop")
     kb.adjust(1)
 
-    # Навигация
     if results:
         kb.row(
             InlineKeyboardButton(text="« Назад", callback_data="page:prev"),
             InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="noop"),
             InlineKeyboardButton(text="Вперёд »", callback_data="page:next"),
         )
-    # Добавляем кнопку настроек (откроет меню настроек reply-клавиатуры)
     kb.row(InlineKeyboardButton(text="Настройки ⚙️", callback_data="settings:open"))
-    kb.row(InlineKeyboardButton(text="Отмена", callback_data="cancel"))
+    kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
     return kb
 
 
 def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
+    """Строит инлайн-меню выбора режима скачивания.
+
+    Args:
+        user_id: Идентификатор пользователя.
+
+    Returns:
+        Экземпляр InlineKeyboardBuilder.
+    """
     mode = get_user_mode(user_id)
-    text = {
-        "auto": "Автоопределение",
-        "audio": "Только аудио",
-        "video": "Только видео (со звуком)",
-        "video_nosound": "Только видео (без звука)",
+    text: Dict[str, str] = {
+        "auto": "Автоопределение 🤖",
+        "audio": "Только аудио 🎵",
+        "video": "Только видео (со звуком) 🎬🔊",
+        "video_nosound": "Только видео (без звука) 🎬🔇",
     }
     kb = InlineKeyboardBuilder()
     for m in ["auto", "audio", "video", "video_nosound"]:
@@ -203,19 +261,23 @@ def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
     return kb
 
 # ==== Новая постоянная стартовая клавиатура и меню настроек (ReplyKeyboard) ====
-MAIN_BUTTONS = ["/start", "/help", "/settings"]
+MAIN_BUTTONS: List[str] = ["/start", "/help", "/settings"]
 SETTINGS_TEXT_TO_MODE: Dict[str, str] = {
-    "Автоопределение": "auto",
-    "Только аудио": "audio",
-    "Только видео (со звуком)": "video",
-    "Только видео (без звука)": "video_nosound",
+    "Автоопределение 🤖": "auto",
+    "Только аудио 🎵": "audio",
+    "Только видео (со звуком) 🎬🔊": "video",
+    "Только видео (без звука) 🎬🔇": "video_nosound",
 }
-BACK_BUTTON_TEXT = "⬅ Назад"
-# Добавлено: поддержка распознавания выбора с/без префикса "✅ "
-SETTINGS_TITLES = list(SETTINGS_TEXT_TO_MODE.keys())
-SETTINGS_REPLY_RE = re.compile(r'^(?:✅\s*)?(%s)$' % '|'.join(map(re.escape, SETTINGS_TITLES)))
+BACK_BUTTON_TEXT: str = "⬅ Назад"
+SETTINGS_TITLES: List[str] = list(SETTINGS_TEXT_TO_MODE.keys())
+SETTINGS_REPLY_RE: Pattern[str] = re.compile(r'^(?:✅\s*)?(%s)$' % '|'.join(map(re.escape, SETTINGS_TITLES)))
 
 def build_main_reply_kb() -> ReplyKeyboardMarkup:
+    """Строит основную reply-клавиатуру.
+
+    Returns:
+        Разметка клавиатуры.
+    """
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="/start"), KeyboardButton(text="/help")],
@@ -225,10 +287,18 @@ def build_main_reply_kb() -> ReplyKeyboardMarkup:
         is_persistent=True,
     )
 
-# Изменено: делаем клавиатуру настроек динамической и помечаем текущий режим "✅"
+
 def build_settings_reply_kb(user_id: int) -> ReplyKeyboardMarkup:
+    """Строит reply-клавиатуру настроек, помечая текущий режим.
+
+    Args:
+        user_id: Идентификатор пользователя.
+
+    Returns:
+        Разметка клавиатуры.
+    """
     mode = get_user_mode(user_id)
-    rows = []
+    rows: List[List[KeyboardButton]] = []
     for title, m in SETTINGS_TEXT_TO_MODE.items():
         prefix = "✅ " if m == mode else ""
         rows.append([KeyboardButton(text=f"{prefix}{title}")])
@@ -239,11 +309,27 @@ def build_settings_reply_kb(user_id: int) -> ReplyKeyboardMarkup:
         is_persistent=True,
     )
 
+
 async def try_cb_answer(cb: CallbackQuery, text: Optional[str] = None) -> None:
+    """Безопасно отвечает на callback-запрос.
+
+    Args:
+        cb: Объект callback.
+        text: Текст всплывающего уведомления.
+    """
     with suppress(Exception):
         await cb.answer(text)
 
+
 def sanitize_query(text: str) -> str:
+    """Санитизирует поисковый запрос: удаляет служебные символы и нормализует пробелы.
+
+    Args:
+        text: Исходная строка.
+
+    Returns:
+        Очищенный и усечённый запрос.
+    """
     t = re.sub(r'[\x00-\x1f\x7f]', '', text)
     t = re.sub(r'[\u200B-\u200F\u202A-\u202E\u2060-\u206F]', '', t)
     t = re.sub(r'\s+', ' ', t).strip()
@@ -251,25 +337,60 @@ def sanitize_query(text: str) -> str:
         t = t[:MAX_QUERY_LEN]
     return t
 
+
 def get_user_lock(user_id: int) -> asyncio.Lock:
+    """Возвращает или создаёт Lock для пользователя.
+
+    Args:
+        user_id: Идентификатор пользователя.
+
+    Returns:
+        Экземпляр asyncio.Lock.
+    """
     lock = USER_LOCKS.get(user_id)
     if lock is None:
         lock = asyncio.Lock()
         USER_LOCKS[user_id] = lock
     return lock
 
+
 async def begin_user_download(user_id: int) -> Optional[asyncio.Lock]:
+    """Пытается захватить пользовательский Lock перед началом загрузки.
+
+    Args:
+        user_id: Идентификатор пользователя.
+
+    Returns:
+        Захваченный Lock или None, если уже занято.
+    """
     lock = get_user_lock(user_id)
     if lock.locked():
         return None
     await lock.acquire()
     return lock
 
+
 def end_user_download(lock: Optional[asyncio.Lock]) -> None:
+    """Освобождает ранее захваченный Lock.
+
+    Args:
+        lock: Объект блокировки.
+    """
     if lock and lock.locked():
         lock.release()
 
+
 async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: bool) -> Dict[str, Any]:
+    """Выполняет извлечение/скачивание через yt-dlp в отдельном потоке.
+
+    Args:
+        url_or_query: URL или поисковый запрос.
+        ydl_opts: Параметры yt-dlp.
+        download: True для скачивания, False для извлечения метаданных.
+
+    Returns:
+        Словарь с информацией от yt-dlp.
+    """
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url_or_query, download=download)
@@ -278,8 +399,15 @@ async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: b
 
 
 async def search_tracks(query: str) -> List[Dict[str, Any]]:
-    # Ищем первые 25 результатов
-    ydl_opts = {
+    """Ищет треки на YouTube и применяет ограничение по длительности.
+
+    Args:
+        query: Поисковая строка.
+
+    Returns:
+        Список словарей результатов: title, url, duration, channel.
+    """
+    ydl_opts: Dict[str, Any] = {
         "quiet": True,
         "skip_download": True,
         "noplaylist": True,
@@ -301,7 +429,16 @@ async def search_tracks(query: str) -> List[Dict[str, Any]]:
     return results
 
 
-def find_files_by_exts(root: str, exts: set) -> List[str]:
+def find_files_by_exts(root: str, exts: Set[str]) -> List[str]:
+    """Находит файлы по множеству расширений.
+
+    Args:
+        root: Корневая директория.
+        exts: Набор расширений (в нижнем регистре, с точкой).
+
+    Returns:
+        Список путей к файлам.
+    """
     out: List[str] = []
     for base, _, files in os.walk(root):
         for name in files:
@@ -311,21 +448,50 @@ def find_files_by_exts(root: str, exts: set) -> List[str]:
 
 
 def find_audio_files(root: str) -> List[str]:
+    """Находит аудиофайлы в директории.
+
+    Args:
+        root: Корень поиска.
+
+    Returns:
+        Список аудиофайлов.
+    """
     return find_files_by_exts(root, AUDIO_EXTS)
 
 
 def find_video_files(root: str) -> List[str]:
+    """Находит видеофайлы в директории.
+
+    Args:
+        root: Корень поиска.
+
+    Returns:
+        Список видеофайлов.
+    """
     return find_files_by_exts(root, VIDEO_EXTS)
 
 
 def find_image_files(root: str) -> List[str]:
+    """Находит изображения в директории.
+
+    Args:
+        root: Корень поиска.
+
+    Returns:
+        Список изображений.
+    """
     return find_files_by_exts(root, IMAGE_EXTS)
 
 
 def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
-    """
-    Приводит картинку к требованиям Telegram: 320x320, JPEG, <= 200KB.
-    Возвращает путь к сжатому файлу или None при неудаче.
+    """Преобразует изображение для Telegram: 320x320 JPEG, ≤200KB.
+
+    Args:
+        src_path: Путь к исходной картинке.
+        out_dir: Директория для вывода.
+
+    Returns:
+        Путь к подготовленному файлу или None при неудаче.
     """
     try:
         with Image.open(src_path) as im:
@@ -338,7 +504,7 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
                 out_dir,
                 f"{os.path.splitext(os.path.basename(src_path))[0]}_320.jpg",
             )
-            last_size = None
+            last_size: Optional[int] = None
             while quality >= min_q:
                 buf = io.BytesIO()
                 im.save(
@@ -377,7 +543,14 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
 
 
 def norm_base(path: str) -> str:
-    # Сначала убираем хвост после '#', затем отрезаем расширение
+    """Возвращает имя файла без расширения и хвоста после '#'.
+
+    Args:
+        path: Путь к файлу.
+
+    Returns:
+        Базовое имя без расширения и хвоста.
+    """
     name = os.path.basename(path)
     name = name.split('#', 1)[0]
     base, _ = os.path.splitext(name)
@@ -385,12 +558,28 @@ def norm_base(path: str) -> str:
 
 
 def extract_id_from_base(base: str) -> Optional[str]:
+    """Извлекает ID в квадратных скобках из базового имени.
+
+    Args:
+        base: Базовое имя файла.
+
+    Returns:
+        ID или None.
+    """
     m = re.search(r'\[([0-9A-Za-z_-]{6,})\]', base)
     return m.group(1) if m else None
 
 
-def make_duration_match_filter(max_seconds: int):
-    def _mf(info: Dict[str, Any]):
+def make_duration_match_filter(max_seconds: int) -> Callable[[Dict[str, Any]], Optional[str]]:
+    """Создаёт фильтр yt-dlp, отвергающий записи длиннее max_seconds.
+
+    Args:
+        max_seconds: Максимально допустимая длительность в секундах.
+
+    Returns:
+        Функция-фильтр, возвращающая строку-причину или None.
+    """
+    def _mf(info: Dict[str, Any]) -> Optional[str]:
         dur = info.get("duration")
         if isinstance(dur, (int, float)) and dur > max_seconds:
             return f"duration>{max_seconds}"
@@ -403,13 +592,17 @@ async def download_media_to_temp(
         mode: str,
         cookies_path: Optional[str] = None,
 ) -> List[Tuple[str, Optional[str]]]:
-    """
-    Возвращает список (path, thumb_path). Для mode:
-      - "audio": отдаёт аудиофайлы
-      - "video"/"video_nosound": отдаёт видеофайлы
+    """Скачивает медиа во временную директорию и подготавливает обложки.
+
+    Args:
+        url: Ссылка на ресурс.
+        mode: Режим ('audio'|'video'|'video_nosound').
+        cookies_path: Путь к cookies.txt, если требуется.
+
+    Returns:
+        Список кортежей (media_path, optional_thumbnail_path).
     """
     tmpdir = tempfile.mkdtemp(prefix="dl_")
-    # Постпроцессоры под режим
     if mode == "audio":
         postprocessors = [
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"},
@@ -424,10 +617,9 @@ async def download_media_to_temp(
             {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
             {"key": "FFmpegMetadata"},
         ]
-        # Лучшее качество видео+аудио, при возможности объединяем в mp4
         ydl_format = "bv*+ba/b"
         extra = {"merge_output_format": "mp4", "recode_video": "mp4"}
-    else:  # "video_nosound"
+    else:
         postprocessors = [
             {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
             {"key": "FFmpegMetadata"},
@@ -498,7 +690,7 @@ async def download_media_to_temp(
                     if needle in name_wo_hash:
                         possible_imgs.append(img)
 
-        t_src = None
+        t_src: Optional[str] = None
         if possible_imgs:
             with suppress(Exception):
                 possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
@@ -531,6 +723,16 @@ async def send_media_files(
     media_arg: str,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Отправляет медиафайлы по одному с опциональными обложками.
+
+    Args:
+        bot: Экземпляр бота.
+        chat_id: Идентификатор чата.
+        items: Список пар (путь к файлу, путь к обложке или None).
+        method: Имя метода Telegram API ('send_audio'|'send_video').
+        media_arg: Имя аргумента медиа ('audio'|'video').
+        extra: Дополнительные аргументы к вызову отправки.
+    """
     for media_path, thumb_path in items:
         try:
             title = os.path.splitext(os.path.basename(media_path))[0]
@@ -554,10 +756,24 @@ async def send_media_files(
 
 
 async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+    """Отправляет список аудиофайлов.
+
+    Args:
+        bot: Экземпляр бота.
+        chat_id: Идентификатор чата.
+        items: Список медиа для отправки.
+    """
     await send_media_files(bot, chat_id, items, method="send_audio", media_arg="audio")
 
 
 async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+    """Отправляет список видеофайлов.
+
+    Args:
+        bot: Экземпляр бота.
+        chat_id: Идентификатор чата.
+        items: Список медиа для отправки.
+    """
     await send_media_files(
         bot,
         chat_id,
@@ -569,6 +785,14 @@ async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Option
 
 
 async def send_by_mode(bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]) -> None:
+    """Выбирает способ отправки в зависимости от режима.
+
+    Args:
+        bot: Экземпляр бота.
+        chat_id: Идентификатор чата.
+        mode: Режим ('audio'|'video'|'video_nosound').
+        items: Список медиа.
+    """
     if mode == "audio":
         await send_audio_files(bot, chat_id, items)
     else:
@@ -576,53 +800,71 @@ async def send_by_mode(bot: Bot, chat_id: int, mode: str, items: List[Tuple[str,
 
 
 def remember_cookie_request(user_id: int, kind: str, url: str) -> None:
+    """Сохраняет состояние ожидания cookies для пользователя.
+
+    Args:
+        user_id: Идентификатор пользователя.
+        kind: Тип запроса ('download'|'pick').
+        url: URL, который нужно повторить.
+    """
     AWAITING_COOKIES[user_id] = {"kind": kind, "url": url, "asked": True}
 
 
 def get_user_cookies_path(user_id: int) -> str:
+    """Возвращает путь к файлу cookies пользователя.
+
+    Args:
+        user_id: Идентификатор пользователя.
+
+    Returns:
+        Путь к файлу cookies.txt.
+    """
     return os.path.join(COOKIES_DIR, f"{user_id}_cookies.txt")
 
 
 @router.message(CommandStart())
 async def cmd_start(msg: Message) -> None:
-    # Сброс локального состояния пользователя
+    """Стартовая команда: сбрасывает состояние и показывает инструкцию."""
     USER_SEARCHES.pop(msg.from_user.id, None)
     AWAITING_COOKIES.pop(msg.from_user.id, None)
     await msg.answer(
-        "Отправьте ссылку — скачаю по вашим настройкам (лучшее качество). Плейлисты до 10.\n"
-        "Или отправьте название — покажу список из 25 результатов.\n"
-        "Команда: /settings — выбрать тип скачивания.\n"
-        "Если нужен доступ — пришлите файл cookies.txt.",
+        "✨ Отправьте ссылку — скачаю по вашим настройкам (лучшее качество). Плейлисты до 10.\n"
+        "📝 Или отправьте название — покажу список из 25 результатов.\n"
+        "⚙️ Команда: /settings — выбрать тип скачивания.\n"
+        "🍪 Если нужен доступ — пришлите файл cookies.txt.",
         reply_markup=build_main_reply_kb(),
     )
 
 
 @router.message(Command("help"))
 async def cmd_help(msg: Message) -> None:
+    """Показывает краткую справку по использованию."""
     await msg.answer(
-        "Как пользоваться:\n"
-        "• Ссылка → скачивание по выбранному режиму (авто/аудио/видео/видео без звука).\n"
-        "• Текст запроса → 25 результатов, 5 страниц по 5 кнопок.\n"
-        "• /settings — сменить тип скачивания.\n"
-        "• Если просит cookies — отправьте cookies.txt.",
+        "ℹ️ Как пользоваться:\n"
+        "• 🔗 Ссылка → скачивание по выбранному режиму (авто/аудио/видео/без звука).\n"
+        "• 🔎 Текст запроса → 25 результатов, 5 страниц по 5 кнопок.\n"
+        "• ⚙️ /settings — сменить тип скачивания.\n"
+        "• 🍪 Если просит cookies — отправьте cookies.txt.",
         reply_markup=build_main_reply_kb(),
     )
 
 
 @router.message(Command("settings"))
 async def cmd_settings(msg: Message) -> None:
-    await msg.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb(msg.from_user.id))
+    """Открывает меню настроек."""
+    await msg.answer("⚙️ Настройки типа скачивания:", reply_markup=build_settings_reply_kb(msg.from_user.id))
 
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
+    """Открывает настройки из инлайн-кнопки."""
     await try_cb_answer(cb)
-    await cb.message.answer("Настройки типа скачивания:", reply_markup=build_settings_reply_kb(cb.from_user.id))
+    await cb.message.answer("⚙️ Настройки типа скачивания:", reply_markup=build_settings_reply_kb(cb.from_user.id))
 
 
-# Изменено: обработчик выбора режима через regex (принимает текст с/без "✅")
 @router.message(F.text.regexp(SETTINGS_REPLY_RE))
 async def handle_settings_choice(msg: Message) -> None:
+    """Обрабатывает выбор режима из reply-клавиатуры."""
     raw = (msg.text or "").strip()
     if raw.startswith("✅"):
         raw = raw[1:].strip()
@@ -630,95 +872,103 @@ async def handle_settings_choice(msg: Message) -> None:
     if not mode:
         return
     set_user_mode(msg.from_user.id, mode)
-    await msg.answer(f"Режим обновлён: {raw}", reply_markup=build_settings_reply_kb(msg.from_user.id))
+    await msg.answer(f"✅ Режим обновлён: {raw}", reply_markup=build_settings_reply_kb(msg.from_user.id))
 
 
-# Кнопка "Назад" — вернуться к стартовой клавиатуре
 @router.message(F.text == BACK_BUTTON_TEXT)
 async def handle_settings_back(msg: Message) -> None:
-    await msg.answer("Возврат к начальной клавиатуре.", reply_markup=build_main_reply_kb())
+    """Возврат к основной клавиатуре из меню настроек."""
+    await msg.answer("↩️ Возврат к начальной клавиатуре.", reply_markup=build_main_reply_kb())
 
 
 @router.callback_query(F.data.startswith("setmode:"))
 async def cb_set_mode(cb: CallbackQuery) -> None:
+    """Устанавливает режим скачивания из инлайн-меню."""
     mode = cb.data.split(":", 1)[1]
     if mode not in {"auto", "audio", "video", "video_nosound"}:
-        await cb.answer("Неизвестный режим.")
+        await cb.answer("⚠️ Неизвестный режим.")
         return
     set_user_mode(cb.from_user.id, mode)
     kb = build_settings_kb(cb.from_user.id)
     with suppress(Exception):
         await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await cb.answer("Режим обновлён.")
+    await cb.answer("✅ Режим обновлён.")
 
 
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
+    """Обрабатывает любые текстовые сообщения: URL или поисковый запрос.
+
+    При URL — сразу пытается скачать. При тексте — выполняет поиск.
+    """
     raw = (msg.text or "").strip()
     text = raw
     logger.info("Запрос от %s: %s", msg.from_user.id, text[:200])
     if not text:
-        await msg.answer("Пустой запрос.")
+        await msg.answer("⚠️ Пустой запрос.")
         return
     if is_url(text):
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), text)
         lock = await begin_user_download(msg.from_user.id)
         if not lock:
-            await msg.answer("Идёт другая загрузка. Дождитесь завершения.")
+            await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
             return
-        await msg.answer("Скачиваю, подождите...")
+        await msg.answer("⏳ Скачиваю, подождите...")
         try:
             files = await download_media_to_temp(text, mode=mode)
             if not files:
-                await msg.answer("Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
+                await msg.answer("😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
                 return
             await send_by_mode(bot, msg.chat.id, mode, files)
         except DownloadError as e:
             logger.warning("Требуются cookies или ошибка загрузки: %s", e)
             remember_cookie_request(msg.from_user.id, kind="download", url=text)
-            await msg.answer("Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
+            await msg.answer("🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
         except Exception:
             logger.exception("Ошибка при загрузке по URL")
-            await msg.answer("Произошла ошибка при загрузке. Попробуйте позже.")
+            await msg.answer("❌ Произошла ошибка при загрузке. Попробуйте позже.")
         finally:
             end_user_download(lock)
         return
     query = sanitize_query(text)
     if not query:
-        await msg.answer("Некорректный запрос.")
+        await msg.answer("⚠️ Некорректный запрос.")
         return
-    await msg.answer("Ищу треки...")
+    await msg.answer("🔎 Ищу треки...")
     try:
         results = await search_tracks(query)
         USER_SEARCHES[msg.from_user.id] = {"results": results, "page": 0}
         if not results:
-            await msg.answer("Ничего не найдено (или превышен лимит длительности).")
+            await msg.answer("🙁 Ничего не найдено (или превышен лимит длительности).")
             return
         kb = build_results_kb(msg.from_user.id)
-        await msg.answer("Результаты поиска:", reply_markup=kb.as_markup())
+        await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
     except Exception:
-        await msg.answer("Ошибка поиска. Попробуйте позже.")
+        await msg.answer("❌ Ошибка поиска. Попробуйте позже.")
 
 
 @router.callback_query(F.data == "noop")
 async def handle_noop(cb: CallbackQuery) -> None:
+    """Обрабатывает пустой callback."""
     await try_cb_answer(cb)
 
 
 @router.callback_query(F.data == "cancel")
 async def handle_cancel(cb: CallbackQuery) -> None:
+    """Отменяет текущий список результатов и ожидание cookies."""
     USER_SEARCHES.pop(cb.from_user.id, None)
     AWAITING_COOKIES.pop(cb.from_user.id, None)
     with suppress(Exception):
         await cb.message.edit_reply_markup(reply_markup=None)
-    await try_cb_answer(cb, "Отменено.")
+    await try_cb_answer(cb, "❌ Отменено.")
 
 
 @router.callback_query(F.data == "page:next")
 async def handle_next_page(cb: CallbackQuery) -> None:
+    """Листает список результатов вперёд."""
     state = USER_SEARCHES.get(cb.from_user.id)
     if not state:
-        await try_cb_answer(cb, "Нет активного списка.")
+        await try_cb_answer(cb, "ℹ️ Нет активного списка.")
         return
     results = state["results"]
     page = state.get("page", 0)
@@ -732,9 +982,10 @@ async def handle_next_page(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "page:prev")
 async def handle_prev_page(cb: CallbackQuery) -> None:
+    """Листает список результатов назад."""
     state = USER_SEARCHES.get(cb.from_user.id)
     if not state:
-        await try_cb_answer(cb, "Нет активного списка.")
+        await try_cb_answer(cb, "ℹ️ Нет активного списка.")
         return
     results = state["results"]
     page = state.get("page", 0)
@@ -748,81 +999,83 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("pick:"))
 async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
+    """Начинает загрузку выбранного результата из списка поиска."""
     idx_str = cb.data.split(":", 1)[1]
     with suppress(ValueError):
         idx = int(idx_str)
         state = USER_SEARCHES.get(cb.from_user.id)
         if not state:
-            await try_cb_answer(cb, "Список результатов устарел.")
+            await try_cb_answer(cb, "ℹ️ Список результатов устарел.")
             return
         results: List[Dict[str, Any]] = state["results"]
         if idx < 0 or idx >= len(results):
-            await try_cb_answer(cb, "Некорректный выбор.")
+            await try_cb_answer(cb, "⚠️ Некорректный выбор.")
             return
         url = results[idx].get("url")
         if not url:
-            await try_cb_answer(cb, "Нет URL для выбранного трека.")
+            await try_cb_answer(cb, "⚠️ Нет URL для выбранного трека.")
             return
 
         mode = decide_effective_mode(get_user_mode(cb.from_user.id), url)
         lock = await begin_user_download(cb.from_user.id)
         if not lock:
-            await try_cb_answer(cb, "Загрузка уже выполняется.")
+            await try_cb_answer(cb, "⏳ Загрузка уже выполняется.")
             return
         await try_cb_answer(cb)
-        await bot.send_message(cb.message.chat.id, "Скачиваю выбранный элемент...")
+        await bot.send_message(cb.message.chat.id, "⏳ Скачиваю выбранный элемент...")
         try:
             files = await download_media_to_temp(url, mode=mode)
             if not files:
-                await bot.send_message(cb.message.chat.id, "Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
+                await bot.send_message(cb.message.chat.id, "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
                 return
             await send_by_mode(bot, cb.message.chat.id, mode, files)
         except DownloadError:
             remember_cookie_request(cb.from_user.id, kind="pick", url=url)
-            await bot.send_message(cb.message.chat.id, "Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
+            await bot.send_message(cb.message.chat.id, "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
         except Exception:
-            await bot.send_message(cb.message.chat.id, "Ошибка при загрузке выбранного элемента.")
+            await bot.send_message(cb.message.chat.id, "❌ Ошибка при загрузке выбранного элемента.")
         finally:
             end_user_download(lock)
 
 
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
+    """Принимает файл cookies.txt и повторяет прошлую попытку загрузки."""
     pending = AWAITING_COOKIES.get(msg.from_user.id)
     if not pending:
-        await msg.answer("Файл получен, но сейчас cookies не требуются.")
+        await msg.answer("📄 Файл получен, но сейчас cookies не требуются.")
         return
 
-    # Сохраняем cookies
     cookies_path = get_user_cookies_path(msg.from_user.id)
     try:
         await bot.download(msg.document, destination=cookies_path)
     except Exception:
-        await msg.answer("Не удалось сохранить cookies.txt.")
+        await msg.answer("❌ Не удалось сохранить cookies.txt.")
         return
 
-    await msg.answer("Cookies получены. Пробую снова...")
+    await msg.answer("🍪 Cookies получены. Пробую снова...")
 
     url = pending.get("url")
     AWAITING_COOKIES.pop(msg.from_user.id, None)
     lock = await begin_user_download(msg.from_user.id)
     if not lock:
-        await msg.answer("Идёт другая загрузка. Дождитесь завершения.")
+        await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
     try:
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
         files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
-            await msg.answer("Не удалось скачать даже с cookies (возможно, превышен лимит длительности).")
+            await msg.answer("😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности).")
             return
         await send_by_mode(bot, msg.chat.id, mode, files)
     except Exception:
-        await msg.answer("Не удалось скачать даже с cookies. Скипаю.")
+        await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")
     finally:
         end_user_download(lock)
 
 
 async def main() -> None:
+    """Точка входа: настройка логирования и старт long-polling."""
     setup_logging()
     if not BOT_TOKEN:
         raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
