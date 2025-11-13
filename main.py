@@ -12,6 +12,7 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 import io
 from PIL import Image, ImageOps
+from PIL.Image import Resampling
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import CommandStart, Command
@@ -26,8 +27,8 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
 
-from yt_dlp import YoutubeDL
-from yt_dlp.utils import DownloadError
+from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
+from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 # ========= Настройки =========
 load_dotenv()
@@ -38,8 +39,8 @@ PAGE_SIZE: int = 5
 CONCURRENT_DOWNLOADS: int = 2
 AUDIO_EXTS: Set[str] = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
 IMAGE_EXTS: Set[str] = {".jpg", ".jpeg", ".png", ".webp"}
-MAX_PLAYLIST_ITEMS: int = 10
 VIDEO_EXTS: Set[str] = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+MAX_PLAYLIST_ITEMS: int = 10
 DURATION_LIMIT_SEC: int = 30 * 60
 MAX_QUERY_LEN: int = 120
 
@@ -58,6 +59,7 @@ COOKIES_DIR: str = os.path.join(os.getcwd(), "cookies")
 os.makedirs(COOKIES_DIR, exist_ok=True)
 USER_SETTINGS: Dict[int, Dict[str, str]] = {}
 USER_LOCKS: Dict[int, asyncio.Lock] = {}
+
 
 # ========= Логирование =========
 def setup_logging(log_dir: str = "logs") -> None:
@@ -102,6 +104,7 @@ def setup_logging(log_dir: str = "logs") -> None:
 
 
 logger: logging.Logger = logging.getLogger("bot")
+
 
 # ========= Основная логика =========
 def is_url(text: str) -> bool:
@@ -176,9 +179,17 @@ def is_audio_platform(url: str) -> bool:
     except Exception:
         return False
     audio_hosts = [
-        "music.youtube.", "soundcloud.com", "bandcamp.com", "mixcloud.com",
-        "audius.co", "hearthis.at", "promodj.com", "music.yandex.", "yandex.ru/music",
-        "deezer.com", "napster.com",
+        "music.youtube.",
+        "soundcloud.com",
+        "bandcamp.com",
+        "mixcloud.com",
+        "audius.co",
+        "hearthis.at",
+        "promodj.com",
+        "music.yandex.",
+        "yandex.ru/music",
+        "deezer.com",
+        "napster.com",
     ]
     return any(h in host for h in audio_hosts) or "/music" in path
 
@@ -260,6 +271,7 @@ def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.row(InlineKeyboardButton(text="Закрыть", callback_data="settings:close"))
     return kb
 
+
 # ==== Новая постоянная стартовая клавиатура и меню настроек (ReplyKeyboard) ====
 MAIN_BUTTONS: List[str] = ["/start", "/help", "/settings"]
 SETTINGS_TEXT_TO_MODE: Dict[str, str] = {
@@ -270,7 +282,10 @@ SETTINGS_TEXT_TO_MODE: Dict[str, str] = {
 }
 BACK_BUTTON_TEXT: str = "⬅ Назад"
 SETTINGS_TITLES: List[str] = list(SETTINGS_TEXT_TO_MODE.keys())
-SETTINGS_REPLY_RE: Pattern[str] = re.compile(r'^(?:✅\s*)?(%s)$' % '|'.join(map(re.escape, SETTINGS_TITLES)))
+SETTINGS_REPLY_RE: Pattern[str] = re.compile(
+    r"^(?:✅\s*)?(%s)$" % "|".join(map(re.escape, SETTINGS_TITLES))
+)
+
 
 def build_main_reply_kb() -> ReplyKeyboardMarkup:
     """Строит основную reply-клавиатуру.
@@ -321,6 +336,26 @@ async def try_cb_answer(cb: CallbackQuery, text: Optional[str] = None) -> None:
         await cb.answer(text)
 
 
+def get_cb_chat_id(cb: CallbackQuery) -> Optional[int]:
+    """Безопасно получить chat_id из CallbackQuery.
+
+    Args:
+        cb: Объект callback-запроса.
+
+    Returns:
+        Идентификатор чата или None, если определить не удалось.
+
+    Примечание:
+        Если сообщение недоступно (InaccessibleMessage/None), используется from_user.id (личный чат).
+    """
+    msg_obj = cb.message
+    if msg_obj is not None and isinstance(msg_obj, Message):
+        return msg_obj.chat.id
+    if cb.from_user is not None:
+        return cb.from_user.id
+    return None
+
+
 def sanitize_query(text: str) -> str:
     """Санитизирует поисковый запрос: удаляет служебные символы и нормализует пробелы.
 
@@ -330,9 +365,9 @@ def sanitize_query(text: str) -> str:
     Returns:
         Очищенный и усечённый запрос.
     """
-    t = re.sub(r'[\x00-\x1f\x7f]', '', text)
-    t = re.sub(r'[\u200B-\u200F\u202A-\u202E\u2060-\u206F]', '', t)
-    t = re.sub(r'\s+', ' ', t).strip()
+    t = re.sub(r"[\x00-\x1f\x7f]", "", text)
+    t = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F]", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
     if len(t) > MAX_QUERY_LEN:
         t = t[:MAX_QUERY_LEN]
     return t
@@ -380,7 +415,9 @@ def end_user_download(lock: Optional[asyncio.Lock]) -> None:
         lock.release()
 
 
-async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: bool) -> Dict[str, Any]:
+async def ytdlp_extract(
+    url_or_query: str, ydl_opts: Dict[str, Any], download: bool
+) -> Dict[str, Any]:
     """Выполняет извлечение/скачивание через yt-dlp в отдельном потоке.
 
     Args:
@@ -391,6 +428,7 @@ async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: b
     Returns:
         Словарь с информацией от yt-dlp.
     """
+
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url_or_query, download=download)
@@ -413,7 +451,9 @@ async def search_tracks(query: str) -> List[Dict[str, Any]]:
         "noplaylist": True,
         "default_search": "ytsearch",
     }
-    info = await ytdlp_extract(f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False)
+    info = await ytdlp_extract(
+        f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False
+    )
     entries = info.get("entries") or []
     results: List[Dict[str, Any]] = []
     for e in entries:
@@ -425,7 +465,9 @@ async def search_tracks(query: str) -> List[Dict[str, Any]]:
             url = f"https://www.youtube.com/watch?v={e['id']}"
         title = e.get("title") or "Без названия"
         channel = e.get("uploader") or e.get("channel") or ""
-        results.append({"title": title, "url": url, "duration": duration, "channel": channel})
+        results.append(
+            {"title": title, "url": url, "duration": duration, "channel": channel}
+        )
     return results
 
 
@@ -496,7 +538,9 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
     try:
         with Image.open(src_path) as im:
             im = im.convert("RGB")
-            im = ImageOps.fit(im, THUMB_SIZE, method=Image.LANCZOS)
+            im = ImageOps.fit(
+                im, THUMB_SIZE, method=Resampling.LANCZOS
+            )  # заменено: Image.LANCZOS -> Resampling.LANCZOS
             quality = 90
             min_q = 40
             step = 5
@@ -538,7 +582,9 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
             )
             return None
     except Exception as e:
-        logging.getLogger("bot").warning("Не удалось обработать обложку %s: %s", src_path, e)
+        logging.getLogger("bot").warning(
+            "Не удалось обработать обложку %s: %s", src_path, e
+        )
         return None
 
 
@@ -552,7 +598,7 @@ def norm_base(path: str) -> str:
         Базовое имя без расширения и хвоста.
     """
     name = os.path.basename(path)
-    name = name.split('#', 1)[0]
+    name = name.split("#", 1)[0]
     base, _ = os.path.splitext(name)
     return base
 
@@ -566,11 +612,13 @@ def extract_id_from_base(base: str) -> Optional[str]:
     Returns:
         ID или None.
     """
-    m = re.search(r'\[([0-9A-Za-z_-]{6,})\]', base)
+    m = re.search(r"\[([0-9A-Za-z_-]{6,})\]", base)
     return m.group(1) if m else None
 
 
-def make_duration_match_filter(max_seconds: int) -> Callable[[Dict[str, Any]], Optional[str]]:
+def make_duration_match_filter(
+    max_seconds: int,
+) -> Callable[[Dict[str, Any]], Optional[str]]:
     """Создаёт фильтр yt-dlp, отвергающий записи длиннее max_seconds.
 
     Args:
@@ -579,18 +627,20 @@ def make_duration_match_filter(max_seconds: int) -> Callable[[Dict[str, Any]], O
     Returns:
         Функция-фильтр, возвращающая строку-причину или None.
     """
+
     def _mf(info: Dict[str, Any]) -> Optional[str]:
         dur = info.get("duration")
         if isinstance(dur, (int, float)) and dur > max_seconds:
             return f"duration>{max_seconds}"
         return None
+
     return _mf
 
 
 async def download_media_to_temp(
-        url: str,
-        mode: str,
-        cookies_path: Optional[str] = None,
+    url: str,
+    mode: str,
+    cookies_path: Optional[str] = None,
 ) -> List[Tuple[str, Optional[str]]]:
     """Скачивает медиа во временную директорию и подготавливает обложки.
 
@@ -605,7 +655,11 @@ async def download_media_to_temp(
     tmpdir = tempfile.mkdtemp(prefix="dl_")
     if mode == "audio":
         postprocessors = [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"},
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            },
             {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
             {"key": "EmbedThumbnail"},
             {"key": "FFmpegMetadata"},
@@ -661,7 +715,9 @@ async def download_media_to_temp(
     else:
         media_files = find_video_files(tmpdir)
     image_files = find_image_files(tmpdir)
-    logger.info("Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files))
+    logger.info(
+        "Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files)
+    )
     if not media_files:
         shutil.rmtree(tmpdir, ignore_errors=True)
         return []
@@ -686,7 +742,7 @@ async def download_media_to_temp(
             if vid:
                 needle = f"[{vid}]"
                 for img in image_files:
-                    name_wo_hash = os.path.basename(img).split('#', 1)[0]
+                    name_wo_hash = os.path.basename(img).split("#", 1)[0]
                     if needle in name_wo_hash:
                         possible_imgs.append(img)
 
@@ -755,7 +811,9 @@ async def send_media_files(
             await asyncio.sleep(0.3)
 
 
-async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+async def send_audio_files(
+    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+) -> None:
     """Отправляет список аудиофайлов.
 
     Args:
@@ -766,7 +824,9 @@ async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Option
     await send_media_files(bot, chat_id, items, method="send_audio", media_arg="audio")
 
 
-async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+async def send_video_files(
+    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+) -> None:
     """Отправляет список видеофайлов.
 
     Args:
@@ -784,7 +844,9 @@ async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Option
     )
 
 
-async def send_by_mode(bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]) -> None:
+async def send_by_mode(
+    bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
+) -> None:
     """Выбирает способ отправки в зависимости от режима.
 
     Args:
@@ -824,9 +886,15 @@ def get_user_cookies_path(user_id: int) -> str:
 
 @router.message(CommandStart())
 async def cmd_start(msg: Message) -> None:
-    """Стартовая команда: сбрасывает состояние и показывает инструкцию."""
-    USER_SEARCHES.pop(msg.from_user.id, None)
-    AWAITING_COOKIES.pop(msg.from_user.id, None)
+    """Стартовая команда: сбрасывает состояние и показывает инструкцию.
+
+    Args:
+        msg: Входящее сообщение команды /start.
+    """
+    uid = msg.from_user.id if msg.from_user is not None else None
+    if uid is not None:
+        USER_SEARCHES.pop(uid, None)
+        AWAITING_COOKIES.pop(uid, None)
     await msg.answer(
         "✨ Отправьте ссылку — скачаю по вашим настройкам (лучшее качество). Плейлисты до 10.\n"
         "📝 Или отправьте название — покажу список из 25 результатов.\n"
@@ -838,7 +906,11 @@ async def cmd_start(msg: Message) -> None:
 
 @router.message(Command("help"))
 async def cmd_help(msg: Message) -> None:
-    """Показывает краткую справку по использованию."""
+    """Показывает краткую справку по использованию.
+
+    Args:
+        msg: Входящее сообщение команды /help.
+    """
     await msg.answer(
         "ℹ️ Как пользоваться:\n"
         "• 🔗 Ссылка → скачивание по выбранному режиму (авто/аудио/видео/без звука).\n"
@@ -851,20 +923,49 @@ async def cmd_help(msg: Message) -> None:
 
 @router.message(Command("settings"))
 async def cmd_settings(msg: Message) -> None:
-    """Открывает меню настроек."""
-    await msg.answer("⚙️ Настройки типа скачивания:", reply_markup=build_settings_reply_kb(msg.from_user.id))
+    """Открывает меню настроек.
+
+    Args:
+        msg: Входящее сообщение команды /settings.
+    """
+    if msg.from_user is None:
+        await msg.answer(
+            "⚙️ Настройки недоступны для этого типа сообщения.",
+            reply_markup=build_main_reply_kb(),
+        )
+        return
+    await msg.answer(
+        "⚙️ Настройки типа скачивания:",
+        reply_markup=build_settings_reply_kb(msg.from_user.id),
+    )
 
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
-    """Открывает настройки из инлайн-кнопки."""
+    """Открывает настройки из инлайн-кнопки.
+
+    Args:
+        cb: CallbackQuery от нажатия кнопки.
+    """
     await try_cb_answer(cb)
-    await cb.message.answer("⚙️ Настройки типа скачивания:", reply_markup=build_settings_reply_kb(cb.from_user.id))
+    if cb.from_user is None:
+        return
+    if cb.message is not None and isinstance(cb.message, Message):
+        await cb.message.answer(
+            "⚙️ Настройки типа скачивания:",
+            reply_markup=build_settings_reply_kb(cb.from_user.id),
+        )
 
 
 @router.message(F.text.regexp(SETTINGS_REPLY_RE))
 async def handle_settings_choice(msg: Message) -> None:
-    """Обрабатывает выбор режима из reply-клавиатуры."""
+    """Обрабатывает выбор режима из reply-клавиатуры.
+
+    Args:
+        msg: Сообщение с выбранным пунктом меню настроек.
+    """
+    if msg.from_user is None:
+        return
     raw = (msg.text or "").strip()
     if raw.startswith("✅"):
         raw = raw[1:].strip()
@@ -872,44 +973,73 @@ async def handle_settings_choice(msg: Message) -> None:
     if not mode:
         return
     set_user_mode(msg.from_user.id, mode)
-    await msg.answer(f"✅ Режим обновлён: {raw}", reply_markup=build_settings_reply_kb(msg.from_user.id))
+    await msg.answer(
+        f"✅ Режим обновлён: {raw}",
+        reply_markup=build_settings_reply_kb(msg.from_user.id),
+    )
 
 
 @router.message(F.text == BACK_BUTTON_TEXT)
 async def handle_settings_back(msg: Message) -> None:
-    """Возврат к основной клавиатуре из меню настроек."""
-    await msg.answer("↩️ Возврат к начальной клавиатуре.", reply_markup=build_main_reply_kb())
+    """Возврат к основной клавиатуре из меню настроек.
+
+    Args:
+        msg: Сообщение с нажатием кнопки «Назад».
+    """
+    await msg.answer(
+        "↩️ Возврат к начальной клавиатуре.", reply_markup=build_main_reply_kb()
+    )
 
 
 @router.callback_query(F.data.startswith("setmode:"))
 async def cb_set_mode(cb: CallbackQuery) -> None:
-    """Устанавливает режим скачивания из инлайн-меню."""
-    mode = cb.data.split(":", 1)[1]
+    """Устанавливает режим скачивания из инлайн-меню.
+
+    Args:
+        cb: CallbackQuery с выбранным режимом.
+    """
+    data = cb.data or ""
+    if not data.startswith("setmode:"):
+        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        return
+    mode = data.split(":", 1)[1]
     if mode not in {"auto", "audio", "video", "video_nosound"}:
         await cb.answer("⚠️ Неизвестный режим.")
         return
+    if cb.from_user is None:
+        await cb.answer("⚠️ Не удалось определить пользователя.")
+        return
     set_user_mode(cb.from_user.id, mode)
     kb = build_settings_kb(cb.from_user.id)
-    with suppress(Exception):
-        await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
     await cb.answer("✅ Режим обновлён.")
 
 
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
-    """Обрабатывает любые текстовые сообщения: URL или поисковый запрос.
+    """Обрабатывает текстовые сообщения: URL или поисковый запрос.
 
-    При URL — сразу пытается скачать. При тексте — выполняет поиск.
+    При URL — сразу скачивает; при тексте — выполняет поиск.
+
+    Args:
+        msg: Входящее текстовое сообщение.
+        bot: Экземпляр бота для отправки ответов.
     """
     raw = (msg.text or "").strip()
     text = raw
-    logger.info("Запрос от %s: %s", msg.from_user.id, text[:200])
+    uid = msg.from_user.id if msg.from_user is not None else None
+    logger.info("Запрос от %s: %s", str(uid), text[:200] if text else "")
     if not text:
         await msg.answer("⚠️ Пустой запрос.")
         return
     if is_url(text):
-        mode = decide_effective_mode(get_user_mode(msg.from_user.id), text)
-        lock = await begin_user_download(msg.from_user.id)
+        if uid is None:
+            await msg.answer("⚠️ Не удалось определить пользователя.")
+            return
+        mode = decide_effective_mode(get_user_mode(uid), text)
+        lock = await begin_user_download(uid)
         if not lock:
             await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
             return
@@ -917,13 +1047,17 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         try:
             files = await download_media_to_temp(text, mode=mode)
             if not files:
-                await msg.answer("😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
+                await msg.answer(
+                    "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут)."
+                )
                 return
             await send_by_mode(bot, msg.chat.id, mode, files)
         except DownloadError as e:
             logger.warning("Требуются cookies или ошибка загрузки: %s", e)
-            remember_cookie_request(msg.from_user.id, kind="download", url=text)
-            await msg.answer("🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
+            remember_cookie_request(uid, kind="download", url=text)
+            await msg.answer(
+                "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки."
+            )
         except Exception:
             logger.exception("Ошибка при загрузке по URL")
             await msg.answer("❌ Произошла ошибка при загрузке. Попробуйте позже.")
@@ -937,11 +1071,12 @@ async def handle_text(msg: Message, bot: Bot) -> None:
     await msg.answer("🔎 Ищу треки...")
     try:
         results = await search_tracks(query)
-        USER_SEARCHES[msg.from_user.id] = {"results": results, "page": 0}
+        if uid is not None:
+            USER_SEARCHES[uid] = {"results": results, "page": 0}
         if not results:
             await msg.answer("🙁 Ничего не найдено (или превышен лимит длительности).")
             return
-        kb = build_results_kb(msg.from_user.id)
+        kb = build_results_kb(uid if uid is not None else 0)
         await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
     except Exception:
         await msg.answer("❌ Ошибка поиска. Попробуйте позже.")
@@ -949,23 +1084,40 @@ async def handle_text(msg: Message, bot: Bot) -> None:
 
 @router.callback_query(F.data == "noop")
 async def handle_noop(cb: CallbackQuery) -> None:
-    """Обрабатывает пустой callback."""
+    """Обрабатывает пустой callback.
+
+    Args:
+        cb: CallbackQuery без действия.
+    """
     await try_cb_answer(cb)
 
 
 @router.callback_query(F.data == "cancel")
 async def handle_cancel(cb: CallbackQuery) -> None:
-    """Отменяет текущий список результатов и ожидание cookies."""
-    USER_SEARCHES.pop(cb.from_user.id, None)
-    AWAITING_COOKIES.pop(cb.from_user.id, None)
-    with suppress(Exception):
-        await cb.message.edit_reply_markup(reply_markup=None)
+    """Отменяет текущий список результатов и ожидание cookies.
+
+    Args:
+        cb: CallbackQuery с действием отмены.
+    """
+    if cb.from_user is not None:
+        USER_SEARCHES.pop(cb.from_user.id, None)
+        AWAITING_COOKIES.pop(cb.from_user.id, None)
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=None)
     await try_cb_answer(cb, "❌ Отменено.")
 
 
 @router.callback_query(F.data == "page:next")
 async def handle_next_page(cb: CallbackQuery) -> None:
-    """Листает список результатов вперёд."""
+    """Листает список результатов вперёд.
+
+    Args:
+        cb: CallbackQuery листания вперёд.
+    """
+    if cb.from_user is None:
+        await try_cb_answer(cb, "ℹ️ Нет пользователя.")
+        return
     state = USER_SEARCHES.get(cb.from_user.id)
     if not state:
         await try_cb_answer(cb, "ℹ️ Нет активного списка.")
@@ -975,14 +1127,22 @@ async def handle_next_page(cb: CallbackQuery) -> None:
     _, pages = slice_page(results, page, PAGE_SIZE)
     state["page"] = (page + 1) % pages
     kb = build_results_kb(cb.from_user.id)
-    with suppress(Exception):
-        await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
     await try_cb_answer(cb)
 
 
 @router.callback_query(F.data == "page:prev")
 async def handle_prev_page(cb: CallbackQuery) -> None:
-    """Листает список результатов назад."""
+    """Листает список результатов назад.
+
+    Args:
+        cb: CallbackQuery листания назад.
+    """
+    if cb.from_user is None:
+        await try_cb_answer(cb, "ℹ️ Нет пользователя.")
+        return
     state = USER_SEARCHES.get(cb.from_user.id)
     if not state:
         await try_cb_answer(cb, "ℹ️ Нет активного списка.")
@@ -992,17 +1152,30 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
     _, pages = slice_page(results, page, PAGE_SIZE)
     state["page"] = (page - 1 + pages) % pages
     kb = build_results_kb(cb.from_user.id)
-    with suppress(Exception):
-        await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
     await try_cb_answer(cb)
 
 
 @router.callback_query(F.data.startswith("pick:"))
 async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
-    """Начинает загрузку выбранного результата из списка поиска."""
-    idx_str = cb.data.split(":", 1)[1]
+    """Начинает загрузку выбранного результата из списка поиска.
+
+    Args:
+        cb: CallbackQuery с выбранным индексом результата.
+        bot: Экземпляр бота для отправки сообщений и медиа.
+    """
+    data = cb.data or ""
+    if ":" not in data:
+        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        return
+    idx_str = data.split(":", 1)[1]
     with suppress(ValueError):
         idx = int(idx_str)
+        if cb.from_user is None:
+            await try_cb_answer(cb, "ℹ️ Не удалось определить пользователя.")
+            return
         state = USER_SEARCHES.get(cb.from_user.id)
         if not state:
             await try_cb_answer(cb, "ℹ️ Список результатов устарел.")
@@ -1022,40 +1195,68 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             await try_cb_answer(cb, "⏳ Загрузка уже выполняется.")
             return
         await try_cb_answer(cb)
-        await bot.send_message(cb.message.chat.id, "⏳ Скачиваю выбранный элемент...")
+        chat_id = get_cb_chat_id(cb)
+        if chat_id is None:
+            end_user_download(lock)
+            return
+        await bot.send_message(chat_id, "⏳ Скачиваю выбранный элемент...")
         try:
             files = await download_media_to_temp(url, mode=mode)
             if not files:
-                await bot.send_message(cb.message.chat.id, "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).")
+                await bot.send_message(
+                    chat_id,
+                    "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
+                )
                 return
-            await send_by_mode(bot, cb.message.chat.id, mode, files)
+            await send_by_mode(bot, chat_id, mode, files)
         except DownloadError:
             remember_cookie_request(cb.from_user.id, kind="pick", url=url)
-            await bot.send_message(cb.message.chat.id, "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.")
+            await bot.send_message(
+                chat_id,
+                "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
+            )
         except Exception:
-            await bot.send_message(cb.message.chat.id, "❌ Ошибка при загрузке выбранного элемента.")
+            await bot.send_message(
+                chat_id, "❌ Ошибка при загрузке выбранного элемента."
+            )
         finally:
             end_user_download(lock)
 
 
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
-    """Принимает файл cookies.txt и повторяет прошлую попытку загрузки."""
+    """Принимает файл cookies.txt и повторяет прошлую попытку загрузки.
+
+    Args:
+        msg: Сообщение с документом cookies.txt.
+        bot: Экземпляр бота, используемый для скачивания и ответов.
+    """
+    if msg.from_user is None:
+        await msg.answer("📄 Файл получен, но не удалось определить пользователя.")
+        return
     pending = AWAITING_COOKIES.get(msg.from_user.id)
     if not pending:
         await msg.answer("📄 Файл получен, но сейчас cookies не требуются.")
         return
 
     cookies_path = get_user_cookies_path(msg.from_user.id)
+    doc = msg.document
+    if doc is None:
+        await msg.answer("❌ Не удалось прочитать файл.")
+        return
     try:
-        await bot.download(msg.document, destination=cookies_path)
+        await bot.download(doc, destination=cookies_path)
     except Exception:
         await msg.answer("❌ Не удалось сохранить cookies.txt.")
         return
 
     await msg.answer("🍪 Cookies получены. Пробую снова...")
 
-    url = pending.get("url")
+    url_any = pending.get("url")
+    if not isinstance(url_any, str) or not url_any:
+        await msg.answer("❌ Нет URL для повтора.")
+        return
+    url = url_any
     AWAITING_COOKIES.pop(msg.from_user.id, None)
     lock = await begin_user_download(msg.from_user.id)
     if not lock:
@@ -1065,7 +1266,9 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
         files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
-            await msg.answer("😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности).")
+            await msg.answer(
+                "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
+            )
             return
         await send_by_mode(bot, msg.chat.id, mode, files)
     except Exception:
@@ -1075,7 +1278,11 @@ async def handle_document(msg: Message, bot: Bot) -> None:
 
 
 async def main() -> None:
-    """Точка входа: настройка логирования и старт long-polling."""
+    """Точка входа: настройка логирования и старт long-polling.
+
+    Returns:
+        None.
+    """
     setup_logging()
     if not BOT_TOKEN:
         raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
