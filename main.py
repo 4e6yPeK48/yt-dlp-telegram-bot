@@ -32,6 +32,7 @@ MAX_RESULTS = 25
 PAGE_SIZE = 5
 CONCURRENT_DOWNLOADS = 2
 AUDIO_EXTS = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}
+MAX_PLAYLIST_ITEMS = 10  # ограничение длины плейлиста
 
 # ========= Глобальные объекты =========
 router = Router()
@@ -216,6 +217,9 @@ async def download_media_to_temp(
         "postprocessors": postprocessors,
         "nocheckcertificate": True,
         "logger": logging.getLogger("yt_dlp"),
+        # Загружаем только первые N элементов плейлиста/канала
+        "playlist_items": f"1-{MAX_PLAYLIST_ITEMS}",
+        "max_downloads": MAX_PLAYLIST_ITEMS,
     }
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
@@ -283,7 +287,7 @@ def get_user_cookies_path(user_id: int) -> str:
 @router.message(CommandStart())
 async def cmd_start(msg: Message) -> None:
     await msg.answer(
-        "Отправьте ссылку на трек/плейлист — скачаю и пришлю аудио.\n"
+        "Отправьте ссылку на трек/плейлист — скачаю и пришлю аудио (в плейлисте до 10 треков).\n"
         "Или отправьте название трека — покажу список из 25 результатов.\n"
         "Если трек требует cookies, пришлите файл `cookies.txt`."
     )
@@ -293,7 +297,7 @@ async def cmd_start(msg: Message) -> None:
 async def cmd_help(msg: Message) -> None:
     await msg.answer(
         "Как пользоваться:\n"
-        "• Ссылка → скачивание аудио (mp3 по умолчанию).\n"
+        "• Ссылка → скачивание аудио (mp3 по умолчанию). Плейлисты ограничены 10 треками.\n"
         "• Текст запроса → 25 результатов, 5 страниц по 5 кнопок.\n"
         "• Если просит cookies — отправьте `cookies.txt`."
     )
