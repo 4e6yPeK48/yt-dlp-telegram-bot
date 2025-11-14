@@ -218,6 +218,18 @@ def decide_effective_mode(user_mode: str, url: str) -> str:
     return user_mode
 
 
+def is_youtube_url(url: str) -> bool:
+    """Эвристика распознавания YouTube/YouTube Music по URL."""
+    try:
+        host = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    return any(
+        h in host
+        for h in ("youtube.", "youtu.be", "music.youtube.")
+    )
+
+
 def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
     """Строит инлайн-клавиатуру с результатами поиска и пагинацией.
 
@@ -451,7 +463,7 @@ def format_duration_hms(dur_any: Optional[Any]) -> str:
 
 
 async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Dict[str, Any]:
-    """Возвращает {'title': str, 'duration': int|None} без скачивания."""
+    """Возвращает {'title': str, 'duration': int|None, 'channel': str, 'thumbnail': str|None} без скачивания."""
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
         "skip_download": True,
@@ -469,14 +481,40 @@ async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Di
             item = entries[0]
     except Exception:
         pass
+
+    def _pick_thumb(it: Dict[str, Any]) -> Optional[str]:
+        t = it.get("thumbnail")
+        if t:
+            return t
+        ts = it.get("thumbnails")
+        if isinstance(ts, list) and ts:
+            # пробуем выбрать самый приоритетный/большой
+            def key_fn(x: Dict[str, Any]) -> Tuple[int, int, int]:
+                pref = int(x.get("preference") or 0)
+                w = int(x.get("width") or 0)
+                h = int(x.get("height") or 0)
+                return (pref, w * h, w + h)
+            try:
+                ts_sorted = sorted(ts, key=key_fn, reverse=True)
+                return ts_sorted[0].get("url")
+            except Exception:
+                with suppress(Exception):
+                    return ts[-1].get("url")
+        return None
+
     title = (
-            (item.get("title") if isinstance(item, dict) else None)
-            or (item.get("fulltitle") if isinstance(item, dict) else None)
-            or (item.get("id") if isinstance(item, dict) else None)
-            or "Без названия"
+        (item.get("title") if isinstance(item, dict) else None)
+        or (item.get("fulltitle") if isinstance(item, dict) else None)
+        or (item.get("id") if isinstance(item, dict) else None)
+        or "Без названия"
     )
     duration = (item.get("duration") if isinstance(item, dict) else None)
-    return {"title": title, "duration": duration}
+    channel = ""
+    if isinstance(item, dict):
+        channel = item.get("uploader") or item.get("channel") or ""
+    thumbnail = _pick_thumb(item if isinstance(item, dict) else {})
+
+    return {"title": title, "duration": duration, "channel": channel, "thumbnail": thumbnail}
 
 
 async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -1144,6 +1182,59 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         end_user_download(lock)
 
 
+async def send_info_card(
+    bot: Bot,
+    chat_id: int,
+    url: str,
+    user_id: int,
+    reply_markup: Optional[Any] = None,
+) -> None:
+    """Отправляет карточку «Файл найден» с названием, каналом (для YouTube) и превью (если есть)."""
+    caption_fallback = "🎧 Файл найден:\n\nВыберите, что скачать для этой ссылки:"
+    try:
+        info = await extract_basic_info(url, cookies_path=get_user_cookies_path(user_id))
+        title = str(info.get("title") or "Без названия")
+        dur_s = info.get("duration")
+        dur_str = format_duration_hms(dur_s)
+        channel = str(info.get("channel") or "")
+        show_channel = is_youtube_url(url) and bool(channel)
+        parts = [
+            "🎧 Файл найден:",
+            "",
+            f"Название: {title}",
+        ]
+        if show_channel:
+            parts.append(f"Канал: {channel}")
+        parts.append(f"Длительность: {dur_str}")
+        parts.append("")
+        parts.append("Выберите, что скачать для этой ссылки:")
+        caption = make_caption("\n".join(parts))
+        thumb_url = info.get("thumbnail")
+        if isinstance(thumb_url, str) and thumb_url.strip():
+            with suppress(Exception):
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=thumb_url.strip(),
+                    caption=caption,
+                    parse_mode=None,
+                    reply_markup=reply_markup,
+                )
+                return
+        await bot.send_message(
+            chat_id,
+            caption,
+            parse_mode=None,
+            reply_markup=reply_markup,
+        )
+    except Exception:
+        await bot.send_message(
+            chat_id,
+            caption_fallback,
+            parse_mode=None,
+            reply_markup=reply_markup,
+        )
+
+
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
     """Обрабатывает текстовые сообщения: URL или поисковый запрос.
@@ -1163,19 +1254,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
             return
         token = save_pending_url(uid, text)
         kb = build_download_choice_kb(uid, token)
-        info_text = ""
-        try:
-            info = await extract_basic_info(text, cookies_path=get_user_cookies_path(uid))
-            title = str(info.get("title") or "Без названия")
-            dur_s = info.get("duration")
-            dur_str = format_duration_hms(dur_s)
-            info_text = f"🎧 Файл найден:\n\nНазвание: {title}\nДлительность: {dur_str}\n\n"
-        except Exception:
-            pass
-        await msg.answer(
-            f"{info_text}Выберите, что скачать для этой ссылки:",
-            reply_markup=kb.as_markup(),
-        )
+        await send_info_card(bot, msg.chat.id, text, uid, reply_markup=kb.as_markup())
         return
     query = sanitize_query(text)
     if not query:
@@ -1324,21 +1403,13 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             with suppress(Exception):
                 await cb.message.edit_reply_markup(reply_markup=None)
 
-        info_text = ""
-        try:
-            info = await extract_basic_info(url, cookies_path=get_user_cookies_path(cb.from_user.id))
-            title = str(info.get("title") or "Без названия")
-            dur_s = info.get("duration")
-            dur_str = format_duration_hms(dur_s)
-            info_text = f"🎧 Файл найден:\n\nНазвание: {title}\nДлительность: {dur_str}\n\n"
-        except Exception:
-            pass
-
         chat_id = get_cb_chat_id(cb)
         if chat_id is not None:
-            await bot.send_message(
+            await send_info_card(
+                bot,
                 chat_id,
-                f"{info_text}Выберите, что скачать для этой ссылки:",
+                url,
+                cb.from_user.id,
                 reply_markup=kb.as_markup(),
             )
         return
