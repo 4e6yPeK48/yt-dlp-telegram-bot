@@ -388,6 +388,18 @@ def make_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
         t = t[: limit - 1] + "…"
     return t
 
+def make_multiline_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
+    """Очищает текст, сохраняя переносы строк."""
+    t = text or ""
+    t = re.sub(r"[\x00-\x1f\x7f]", "", t)
+    t = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F]", "", t)
+    # убираем хвостовые пробелы по строкам, но сохраняем структуру
+    t = "\n".join(line.rstrip() for line in t.splitlines())
+    t = t.strip()
+    if len(t) > limit:
+        t = t[: limit - 1] + "…"
+    return t
+
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
     """Возвращает или создаёт Lock для пользователя.
@@ -1208,7 +1220,7 @@ async def send_info_card(
         parts.append(f"Длительность: {dur_str}")
         parts.append("")
         parts.append("Выберите, что скачать для этой ссылки:")
-        caption = make_caption("\n".join(parts))
+        caption = make_multiline_caption("\n".join(parts))
         thumb_url = info.get("thumbnail")
         if isinstance(thumb_url, str) and thumb_url.strip():
             with suppress(Exception):
@@ -1242,21 +1254,27 @@ async def handle_text(msg: Message, bot: Bot) -> None:
     При URL — показываем меню выбора скачивания; при тексте — выполняем поиск.
     """
     raw = (msg.text or "").strip()
-    text = raw
+    url = raw
     uid = msg.from_user.id if msg.from_user is not None else None
-    logger.info("Запрос от %s: %s", str(uid), text[:200] if text else "")
-    if not text:
+    logger.info("Запрос от %s: %s", str(uid), url[:200] if url else "")
+    if not url:
         await msg.answer("⚠️ Пустой запрос.")
         return
-    if is_url(text):
+    if is_url(url):
         if uid is None:
             await msg.answer("⚠️ Не удалось определить пользователя.")
             return
-        token = save_pending_url(uid, text)
+        token = save_pending_url(uid, url)
         kb = build_download_choice_kb(uid, token)
-        await send_info_card(bot, msg.chat.id, text, uid, reply_markup=kb.as_markup())
+        await send_info_card(
+            bot,
+            msg.chat.id,
+            url,
+            uid,
+            reply_markup=kb.as_markup()
+        )
         return
-    query = sanitize_query(text)
+    query = sanitize_query(url)
     if not query:
         await msg.answer("⚠️ Некорректный запрос.")
         return
