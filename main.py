@@ -1380,7 +1380,6 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             await msg.answer("❌ Не удалось выполнить поиск даже с cookies.")
         return
 
-    # ...existing code прежнего повтора скачивания (kind='download')...
     url_any = pending.get("url")
     if not isinstance(url_any, str) or not url_any:
         await msg.answer("❌ Нет URL для повтора.")
@@ -1391,8 +1390,8 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
     try:
-        mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
-        files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
+        mode = decide_effective_mode(get_user_mode(msg.from_user.id), url_any)
+        files = await download_media_to_temp(url_any, mode=mode, cookies_path=cookies_path)
         if not files:
             await msg.answer(
                 "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
