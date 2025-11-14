@@ -84,6 +84,15 @@ def setup_logging(log_dir: str = "logs") -> None:
         "%(asctime)s %(levelname)s [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
+    class OnlyLoggerFilter(logging.Filter):
+        """Пропускает только записи выбранного логгера (по префиксу имени)."""
+        def __init__(self, prefix: str) -> None:
+            super().__init__()
+            self.prefix = prefix
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            return record.name.startswith(self.prefix)
+
     def make_rotating(path: str, level: int) -> TimedRotatingFileHandler:
         handler = TimedRotatingFileHandler(
             filename=os.path.join(log_dir, path),
@@ -102,12 +111,35 @@ def setup_logging(log_dir: str = "logs") -> None:
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(fmt)
+    console.addFilter(OnlyLoggerFilter("bot"))
     root.addHandler(console)
 
     root.addHandler(make_rotating("app.debug.log", logging.DEBUG))
-    root.addHandler(make_rotating("app.info.log", logging.INFO))
+
+    info_h = make_rotating("app.info.log", logging.INFO)
+    info_h.addFilter(OnlyLoggerFilter("bot"))
+    root.addHandler(info_h)
+
     root.addHandler(make_rotating("app.warn.log", logging.WARNING))
     root.addHandler(make_rotating("app.error.log", logging.ERROR))
+
+    third_party = [
+        ("aiogram", "aiogram.error.log"),
+        ("aiohttp", "aiohttp.error.log"),
+        ("yt_dlp", "yt-dlp.error.log"),
+    ]
+    for name, fname in third_party:
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.DEBUG)
+        errh = TimedRotatingFileHandler(
+            filename=os.path.join(log_dir, fname),
+            when="midnight",
+            backupCount=7,
+            encoding="utf-8",
+        )
+        errh.setLevel(logging.ERROR)
+        errh.setFormatter(fmt)
+        lg.addHandler(errh)
 
     logging.getLogger("aiogram").setLevel(logging.INFO)
     logging.getLogger("aiohttp").setLevel(logging.INFO)
@@ -1123,6 +1155,7 @@ async def cmd_start(msg: Message) -> None:
     if uid is not None:
         USER_SEARCHES.pop(uid, None)
         AWAITING_COOKIES.pop(uid, None)
+    logger.info("Команда /start от пользователя %s", str(uid))
     await msg.answer(
         "✨ Отправьте ссылку — скачаю по вашим настройкам.\n"
         "📝 Или отправьте название — покажу список из 25 результатов.\n"
@@ -1143,6 +1176,7 @@ async def cmd_help(msg: Message) -> None:
     Args:
         msg (Message): Сообщение команды.
     """
+    logger.info("Команда /help от пользователя %s", str(msg.from_user.id if msg.from_user else None))
     await msg.answer(
         "ℹ️ Как пользоваться:\n"
         "• 🔗 Ссылка → скачивание по выбранному режиму.\n"
@@ -1166,6 +1200,7 @@ async def cmd_settings(msg: Message) -> None:
             reply_markup=build_main_reply_kb(),
         )
         return
+    logger.info("Открытие настроек пользователем %s", str(msg.from_user.id))
     await msg.answer(
         "⚙️ Настройки типа скачивания:",
         reply_markup=build_settings_kb(msg.from_user.id).as_markup(),
@@ -1223,6 +1258,7 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
         await cb.answer("⚠️ Не удалось определить пользователя.")
         return
     set_user_mode(cb.from_user.id, mode)
+    logger.info("Режим пользователя %s изменён на %s", cb.from_user.id, mode)
     kb = build_settings_kb(cb.from_user.id)
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
@@ -1265,6 +1301,8 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     else:
         mode = mode_sel
 
+    logger.info("Выбор скачивания: user=%s, mode=%s, url=%s", str(user_id), mode, url[:200])
+
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
             await cb.message.edit_reply_markup(reply_markup=None)
@@ -1286,19 +1324,24 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         cookies_path = get_user_cookies_path(user_id)
         files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
+            logger.info("Загрузка завершена: нечего отправлять (user=%s, mode=%s)", str(user_id), mode)
             await bot.send_message(
                 chat_id,
                 "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
             )
             return
+        logger.info("Загрузка завершена: файлов к отправке %d (user=%s, mode=%s)", len(files), str(user_id), mode)
         await send_by_mode(bot, chat_id, mode, files)
+        logger.info("Отправка завершена: отправлено %d файлов (user=%s, mode=%s)", len(files), str(user_id), mode)
     except DownloadError:
+        logger.info("Загрузка требует cookies (user=%s, mode=%s)", str(user_id), mode)
         remember_cookie_request(user_id, kind="download", url=url, mode=mode)
         await bot.send_message(
             chat_id,
             "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
         )
     except Exception:
+        logger.info("Ошибка при загрузке (user=%s, mode=%s)", str(user_id), mode)
         await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
     finally:
         end_user_download(lock)
@@ -1312,16 +1355,10 @@ async def send_info_card(
         reply_markup: Optional[Any] = None,
 ) -> None:
     """Отправляет карточку найденного файла.
-
-    Args:
-        bot (Bot): Экземпляр бота.
-        chat_id (int): ID чата.
-        url (str): Ссылка.
-        user_id (int): Пользователь.
-        reply_markup (Optional[Any]): Клавиатура.
     """
     caption_fallback = "🎧 Файл найден:\n\nВыберите, что скачать для этой ссылки:"
     try:
+        logger.info("Показываю карточку информации (user=%s, url=%s)", str(user_id), url[:200])
         info = await extract_basic_info(url, cookies_path=get_user_cookies_path(user_id))
         title = str(info.get("title") or "Без названия")
         dur_s = info.get("duration")
@@ -1367,8 +1404,7 @@ async def send_info_card(
 
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
-    """Обрабатывает текст: команды/кнопки, URL (меню скачивания) или поиск."""
-    """Обрабатывает текст: URL (меню скачивания) или поиск.
+    """Обрабатывает текст: команды/кнопки, URL (меню скачивания) или поиск.
 
     Args:
         msg (Message): Входящее сообщение.
@@ -1393,7 +1429,9 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         await msg.answer("⚠️ Пустой запрос.")
         return
     if is_url(url):
+        logger.info("Обнаружена ссылка. Показываю карточку выбора (user=%s)", str(uid))
         if uid is None:
+            logger.info("Не удалось определить пользователя для ссылки.")
             await msg.answer("⚠️ Не удалось определить пользователя.")
             return
         token = save_pending_url(uid, url)
@@ -1408,22 +1446,28 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         return
     query = sanitize_query(url)
     if not query:
+        logger.info("Пустой или некорректный поисковый запрос (user=%s)", str(uid))
         await msg.answer("⚠️ Некорректный запрос.")
         return
+    logger.info("Начинаю поиск (user=%s, query=%s)", str(uid), query[:120])
     await msg.answer("🔎 Ищу...")
     try:
         cookies_path = get_user_cookies_path(uid) if uid is not None else None
         results = await search_tracks(query, cookies_path=cookies_path)
+        logger.info("Поиск завершён: найдено %d (user=%s)", len(results), str(uid))
         if uid is not None:
             USER_SEARCHES[uid] = {"results": results, "page": 0}
         if not results:
+            logger.info("Ничего не найдено (user=%s)", str(uid))
             await msg.answer("🙁 Ничего не найдено (или превышен лимит длительности).")
             return
         kb = build_results_kb(uid if uid is not None else 0)
+        logger.info("Показываю результаты поиска (user=%s)", str(uid))
         await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
     except DownloadError as e:
         if uid is not None:
             remember_search_cookie_request(uid, query)
+        logger.info('Поиск требует cookies (user=%s): %s', str(uid), str(e))
         await msg.answer(
             "🍪 Источник требует cookies или защиту (YouTube может просить вход).\n"
             "Пришлите файл cookies.txt — повторю поиск с cookies."
@@ -1512,10 +1556,6 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("pick:"))
 async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
     """Начинает загрузку выбранного результата.
-
-    Args:
-        cb (CallbackQuery): Запрос с индексом.
-        bot (Bot): Экземпляр бота.
     """
     data = cb.data or ""
     if ":" not in data:
@@ -1539,6 +1579,8 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         if not url:
             await try_cb_answer(cb, "⚠️ Нет URL для выбранного трека.")
             return
+
+        logger.info("Выбор результата #%d пользователем %s: %s", idx, cb.from_user.id, (url or "")[:200])
 
         token = save_pending_url(cb.from_user.id, url)
         kb = build_download_choice_kb(cb.from_user.id, token)
@@ -1568,34 +1610,36 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
     """Обрабатывает загрузку cookies.txt и повторяет операцию.
-
-    Args:
-        msg (Message): Сообщение с документом.
-        bot (Bot): Экземпляр бота.
     """
     if msg.from_user is None:
+        logger.info("Получен файл, но не удалось определить пользователя.")
         await msg.answer("📄 Файл получен, но не удалось определить пользователя.")
         return
     pending = AWAITING_COOKIES.get(msg.from_user.id)
     if not pending:
+        logger.info("Получен файл от %s, но cookies не требуются.", msg.from_user.id)
         await msg.answer("📄 Файл получен, но сейчас cookies не требуются.")
         return
 
     cookies_path = get_user_cookies_path(msg.from_user.id)
     doc = msg.document
     if doc is None:
+        logger.info("Не удалось прочитать файл cookies от %s.", msg.from_user.id)
         await msg.answer("❌ Не удалось прочитать файл.")
         return
 
     name_l = (doc.file_name or "").lower()
     ext = os.path.splitext(name_l)[1]
     size = doc.file_size or 0
+    logger.info("Получен файл cookies от %s: %s (%d байт)", msg.from_user.id, doc.file_name, size)
     if ext not in ALLOWED_COOKIES_EXTS:
+        logger.info("Некорректный формат файла cookies от %s: %s", msg.from_user.id, ext)
         await msg.answer("⚠️ Нужен файл cookies в формате Netscape: cookies.txt.")
         return
     if size and size > COOKIES_MAX_BYTES:
         lim_mb = COOKIES_MAX_BYTES / (1024 * 1024)
         cur_mb = size / (1024 * 1024)
+        logger.info("Слишком большой файл cookies от %s: %.2f МБ (лимит %.0f МБ)", msg.from_user.id, cur_mb, lim_mb)
         await msg.answer(
             f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
         )
@@ -1603,7 +1647,11 @@ async def handle_document(msg: Message, bot: Bot) -> None:
 
     try:
         await bot.download(doc, destination=cookies_path)
+        with suppress(Exception):
+            real_size = os.path.getsize(cookies_path)
+            logger.info("Cookies сохранены для %s: %s (%d байт)", msg.from_user.id, cookies_path, real_size)
     except Exception:
+        logger.info("Не удалось сохранить файл cookies от %s.", msg.from_user.id)
         await msg.answer("❌ Не удалось сохранить cookies.txt.")
         return
 
@@ -1614,35 +1662,44 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             cur_mb = real_size / (1024 * 1024)
             with suppress(Exception):
                 os.remove(cookies_path)
+            logger.info("Слишком большой сохранённый файл cookies от %s: %.2f МБ (лимит %.0f МБ)", msg.from_user.id, cur_mb, lim_mb)
             await msg.answer(
                 f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
             )
             return
 
+    logger.info("Повтор операции с cookies для %s.", msg.from_user.id)
     await msg.answer("🍪 Cookies получены. Пробую снова...")
 
     pending_kind = (pending.get("kind") or "").lower()
     if pending_kind == "search":
         query_any = pending.get("query")
         if not isinstance(query_any, str) or not query_any.strip():
+            logger.info("Нет запроса для повтора поиска с cookies от %s.", msg.from_user.id)
             await msg.answer("❌ Нет запроса для повтора поиска.")
             return
         query = query_any.strip()
+        logger.info("Повтор поиска с cookies (user=%s, query=%s)", msg.from_user.id, query[:120])
         AWAITING_COOKIES.pop(msg.from_user.id, None)
         try:
             results = await search_tracks(query, cookies_path=cookies_path)
+            logger.info("Поиск с cookies: найдено %d (user=%s)", len(results), msg.from_user.id)
             USER_SEARCHES[msg.from_user.id] = {"results": results, "page": 0}
             if not results:
+                logger.info("Ничего не найдено с cookies от %s.", msg.from_user.id)
                 await msg.answer("🙁 Ничего не найдено даже с cookies.")
                 return
             kb = build_results_kb(msg.from_user.id)
+            logger.info("Показываю результаты поиска с cookies (user=%s)", msg.from_user.id)
             await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
         except Exception:
+            logger.info("Ошибка поиска с cookies от %s.", msg.from_user.id)
             await msg.answer("❌ Не удалось выполнить поиск даже с cookies.")
         return
 
     url_any = pending.get("url")
     if not isinstance(url_any, str) or not url_any:
+        logger.info("Нет URL для повтора загрузки с cookies от %s.", msg.from_user.id)
         await msg.answer("❌ Нет URL для повтора.")
         return
     url = url_any
@@ -1655,20 +1712,27 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     else:
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
 
+    logger.info("Повтор загрузки с cookies (user=%s, mode=%s, url=%s)", msg.from_user.id, mode, url[:200])
+
     AWAITING_COOKIES.pop(msg.from_user.id, None)
     lock = await begin_user_download(msg.from_user.id)
     if not lock:
+        logger.info("Не удалось начать загрузку с cookies: другая загрузка идёт (user=%s)", msg.from_user.id)
         await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
     try:
         files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
+            logger.info("Загрузка с cookies завершена: нечего отправлять (user=%s, mode=%s)", msg.from_user.id, mode)
             await msg.answer(
                 "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
             )
             return
+        logger.info("Загрузка с cookies завершена: файлов к отправке %d (user=%s, mode=%s)", len(files), msg.from_user.id, mode)
         await send_by_mode(bot, msg.chat.id, mode, files)
+        logger.info("Отправка (cookies) завершена: отправлено %d файлов (user=%s, mode=%s)", len(files), msg.from_user.id, mode)
     except Exception:
+        logger.info("Ошибка при загрузке с cookies (user=%s, mode=%s)", msg.from_user.id, mode)
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")
     finally:
         end_user_download(lock)
