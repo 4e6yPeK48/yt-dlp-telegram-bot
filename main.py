@@ -1138,8 +1138,9 @@ async def handle_text(msg: Message, bot: Bot) -> None:
             return
         kb = build_results_kb(uid if uid is not None else 0)
         await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
-    except Exception:
-        await msg.answer("❌ Ошибка поиска. Попробуйте позже.")
+    except Exception as e:
+        logger.info('Ошибка поиска для "%s": %s', query, str(e))
+        await msg.answer(f"❌ Ошибка поиска. Попробуйте позже. Ошибка: {e}")
 
 
 @router.callback_query(F.data == "noop")
