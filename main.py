@@ -13,6 +13,7 @@ from logging.handlers import TimedRotatingFileHandler
 import io
 from PIL import Image, ImageOps
 from PIL.Image import Resampling
+import secrets  # добавлено
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import CommandStart, Command
@@ -64,7 +65,7 @@ COOKIES_DIR: str = os.path.join(os.getcwd(), "cookies")
 os.makedirs(COOKIES_DIR, exist_ok=True)
 USER_SETTINGS: Dict[int, Dict[str, str]] = {}
 USER_LOCKS: Dict[int, asyncio.Lock] = {}
-
+PENDING_DOWNLOADS: Dict[str, Dict[str, Any]] = {}  # token -> {user_id, url}
 
 # ========= Логирование =========
 def setup_logging(log_dir: str = "logs") -> None:
@@ -251,7 +252,6 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
     return kb
 
-
 def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
     """Строит инлайн-меню выбора режима скачивания.
 
@@ -276,6 +276,28 @@ def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.row(InlineKeyboardButton(text="Закрыть", callback_data="settings:close"))
     return kb
 
+# Новое: инлайн-меню выбора действия для ссылки
+def make_dl_token() -> str:
+    t = ""
+    # гарантируем уникальность и компактность токена
+    for _ in range(5):
+        t = secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:10]
+        if t not in PENDING_DOWNLOADS:
+            break
+    return t
+
+def build_download_choice_kb(user_id: int, token: str) -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.row(InlineKeyboardButton(text="🎵 Скачать аудио", callback_data=f"dl:audio:{token}"))
+    kb.row(InlineKeyboardButton(text="🎬 Скачать видео", callback_data=f"dl:video:{token}"))
+    kb.row(InlineKeyboardButton(text="📥 Лучшее качество (авто)", callback_data=f"dl:auto:{token}"))
+    kb.row(InlineKeyboardButton(text="⚙️ Изменить тип скачивания", callback_data="settings:open"))
+    return kb
+
+def save_pending_url(user_id: int, url: str) -> str:
+    token = make_dl_token()
+    PENDING_DOWNLOADS[token] = {"user_id": user_id, "url": url}
+    return token
 
 # ==== Новая постоянная стартовая клавиатура и меню настроек (ReplyKeyboard) ====
 MAIN_BUTTONS: List[str] = ["/start", "/help", "/settings"]
@@ -1001,6 +1023,78 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
     await cb.answer("✅ Режим обновлён.")
 
 
+# Новый обработчик: выбор действия для ссылки (скачивание)
+@router.callback_query(F.data.startswith("dl:"))
+async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
+    # формат: dl:{mode}:{token}
+    data = cb.data or ""
+    parts = data.split(":")
+    if len(parts) != 3:
+        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        return
+    _, mode_sel, token = parts
+    if mode_sel not in {"audio", "video", "auto"}:
+        await try_cb_answer(cb, "⚠️ Неизвестный режим.")
+        return
+    pend = PENDING_DOWNLOADS.get(token)
+    if not pend:
+        await try_cb_answer(cb, "ℹ️ Ссылка устарела. Отправьте её снова.")
+        return
+    user_id = pend.get("user_id")
+    url = pend.get("url")
+    if not isinstance(user_id, int) or not isinstance(url, str):
+        await try_cb_answer(cb, "⚠️ Ошибка данных.")
+        return
+
+    # блокируем повторное использование токена
+    with suppress(Exception):
+        PENDING_DOWNLOADS.pop(token, None)
+
+    # определяем режим
+    if mode_sel == "auto":
+        mode = decide_effective_mode(get_user_mode(user_id), url)
+    else:
+        mode = mode_sel
+
+    # удаляем клавиатуру у сообщения меню (если есть доступ)
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=None)
+
+    lock = await begin_user_download(user_id)
+    if not lock:
+        await try_cb_answer(cb, "⏳ Идёт другая загрузка.")
+        return
+
+    chat_id = get_cb_chat_id(cb)
+    if chat_id is None:
+        end_user_download(lock)
+        await try_cb_answer(cb)
+        return
+
+    await try_cb_answer(cb)
+    await bot.send_message(chat_id, "⏳ Скачиваю, подождите...")
+    try:
+        files = await download_media_to_temp(url, mode=mode)
+        if not files:
+            await bot.send_message(
+                chat_id,
+                "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
+            )
+            return
+        await send_by_mode(bot, chat_id, mode, files)
+    except DownloadError:
+        remember_cookie_request(user_id, kind="download", url=url)
+        await bot.send_message(
+            chat_id,
+            "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
+        )
+    except Exception:
+        await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
+    finally:
+        end_user_download(lock)
+
+
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
     """Обрабатывает текстовые сообщения: URL или поисковый запрос.
@@ -1022,31 +1116,13 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         if uid is None:
             await msg.answer("⚠️ Не удалось определить пользователя.")
             return
-        mode = decide_effective_mode(get_user_mode(uid), text)
-        lock = await begin_user_download(uid)
-        if not lock:
-            await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
-            return
-        await msg.answer("⏳ Скачиваю, подождите...")
-        try:
-            files = await download_media_to_temp(text, mode=mode)
-            if not files:
-                await msg.answer(
-                    "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут)."
-                )
-                return
-            await send_by_mode(bot, msg.chat.id, mode, files)
-        except DownloadError as e:
-            logger.warning("Требуются cookies или ошибка загрузки: %s", e)
-            remember_cookie_request(uid, kind="download", url=text)
-            await msg.answer(
-                "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки."
-            )
-        except Exception:
-            logger.exception("Ошибка при загрузке по URL")
-            await msg.answer("❌ Произошла ошибка при загрузке. Попробуйте позже.")
-        finally:
-            end_user_download(lock)
+        # Новое поведение: сначала предлагаем варианты скачивания
+        token = save_pending_url(uid, text)
+        kb = build_download_choice_kb(uid, token)
+        await msg.answer(
+            "Выберите, что скачать для этой ссылки:",
+            reply_markup=kb.as_markup(),
+        )
         return
     query = sanitize_query(text)
     if not query:
@@ -1173,38 +1249,16 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             await try_cb_answer(cb, "⚠️ Нет URL для выбранного трека.")
             return
 
-        mode = decide_effective_mode(get_user_mode(cb.from_user.id), url)
-        lock = await begin_user_download(cb.from_user.id)
-        if not lock:
-            await try_cb_answer(cb, "⏳ Загрузка уже выполняется.")
-            return
+        # Новое поведение: показываем меню выбора способа скачивания
+        token = save_pending_url(cb.from_user.id, url)
+        kb = build_download_choice_kb(cb.from_user.id, token)
         await try_cb_answer(cb)
-        chat_id = get_cb_chat_id(cb)
-        if chat_id is None:
-            end_user_download(lock)
-            return
-        await bot.send_message(chat_id, "⏳ Скачиваю выбранный элемент...")
-        try:
-            files = await download_media_to_temp(url, mode=mode)
-            if not files:
-                await bot.send_message(
-                    chat_id,
-                    "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
-                )
-                return
-            await send_by_mode(bot, chat_id, mode, files)
-        except DownloadError:
-            remember_cookie_request(cb.from_user.id, kind="pick", url=url)
-            await bot.send_message(
-                chat_id,
-                "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
+        if cb.message is not None and isinstance(cb.message, Message):
+            await cb.message.answer(
+                "Выберите, что скачать для этой ссылки:",
+                reply_markup=kb.as_markup(),
             )
-        except Exception:
-            await bot.send_message(
-                chat_id, "❌ Ошибка при загрузке выбранного элемента."
-            )
-        finally:
-            end_user_download(lock)
+        return
 
 
 @router.message(F.document)
