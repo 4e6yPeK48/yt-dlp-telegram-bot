@@ -439,7 +439,7 @@ async def ytdlp_extract(
     return await asyncio.to_thread(_run)
 
 
-async def search_tracks(query: str) -> List[Dict[str, Any]]:
+async def search_tracks_without_cookies(query: str) -> List[Dict[str, Any]]:
     """Ищет треки на YouTube и применяет ограничение по длительности.
 
     Args:
@@ -457,6 +457,43 @@ async def search_tracks(query: str) -> List[Dict[str, Any]]:
     info = await ytdlp_extract(
         f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False
     )
+    entries = info.get("entries") or []
+    results: List[Dict[str, Any]] = []
+    for e in entries:
+        duration = e.get("duration")
+        if isinstance(duration, (int, float)) and duration > DURATION_LIMIT_SEC:
+            continue
+        url = e.get("webpage_url") or e.get("url")
+        if not url and e.get("id"):
+            url = f"https://www.youtube.com/watch?v={e['id']}"
+        title = e.get("title") or "Без названия"
+        channel = e.get("uploader") or e.get("channel") or ""
+        results.append(
+            {"title": title, "url": url, "duration": duration, "channel": channel}
+        )
+    return results
+
+
+async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Ищет треки на YouTube и применяет ограничение по длительности.
+
+    Args:
+        query: Поисковая строка.
+        cookies_path: Путь к cookies.txt (если требуется авторизация/обход защиты).
+
+    Returns:
+        Список словарей результатов: title, url, duration, channel.
+    """
+    ydl_opts: Dict[str, Any] = {
+        "quiet": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "default_search": "ytsearch",
+    }
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+
+    info = await ytdlp_extract(f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False)
     entries = info.get("entries") or []
     results: List[Dict[str, Any]] = []
     for e in entries:
@@ -903,11 +940,14 @@ def remember_cookie_request(user_id: int, kind: str, url: str) -> None:
 
     Args:
         user_id: Идентификатор пользователя.
-        kind: Тип запроса ('download'|'pick').
-        url: URL, который нужно повторить.
+        kind: Тип запроса ('download'|'pick'|'search').
+        url: URL, который нужно повторить (для 'search' не используется).
     """
     AWAITING_COOKIES[user_id] = {"kind": kind, "url": url, "asked": True}
 
+def remember_search_cookie_request(user_id: int, query: str) -> None:
+    """Сохраняет ожидание cookies для повторения поиска."""
+    AWAITING_COOKIES[user_id] = {"kind": "search", "query": query, "asked": True}
 
 def get_user_cookies_path(user_id: int) -> str:
     """Возвращает путь к файлу cookies пользователя.
@@ -1099,11 +1139,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
 async def handle_text(msg: Message, bot: Bot) -> None:
     """Обрабатывает текстовые сообщения: URL или поисковый запрос.
 
-    При URL — сразу скачивает; при тексте — выполняет поиск.
-
-    Args:
-        msg: Входящее текстовое сообщение.
-        bot: Экземпляр бота для отправки ответов.
+    При URL — показываем меню выбора скачивания; при тексте — выполняем поиск.
     """
     raw = (msg.text or "").strip()
     text = raw
@@ -1130,7 +1166,8 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         return
     await msg.answer("🔎 Ищу треки...")
     try:
-        results = await search_tracks(query)
+        cookies_path = get_user_cookies_path(uid) if uid is not None else None
+        results = await search_tracks(query, cookies_path=cookies_path)
         if uid is not None:
             USER_SEARCHES[uid] = {"results": results, "page": 0}
         if not results:
@@ -1138,9 +1175,16 @@ async def handle_text(msg: Message, bot: Bot) -> None:
             return
         kb = build_results_kb(uid if uid is not None else 0)
         await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
+    except DownloadError as e:
+        if uid is not None:
+            remember_search_cookie_request(uid, query)
+        await msg.answer(
+            "🍪 Источник требует cookies или защиту (YouTube может просить вход).\n"
+            "Пришлите файл cookies.txt — повторю поиск с cookies."
+        )
     except Exception as e:
         logger.info('Ошибка поиска для "%s": %s', query, str(e))
-        await msg.answer(f"❌ Ошибка поиска. Попробуйте позже. Ошибка: {e}")
+        await msg.answer("❌ Ошибка поиска. Попробуйте позже.")
 
 
 @router.callback_query(F.data == "noop")
@@ -1264,11 +1308,9 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
 
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
-    """Принимает файл cookies.txt и повторяет прошлую попытку загрузки.
+    """Принимает файл cookies.txt и повторяет прошлую попытку.
 
-    Args:
-        msg: Сообщение с документом cookies.txt.
-        bot: Экземпляр бота, используемый для скачивания и ответов.
+    Поддерживает: повтор скачивания ('download') и повтор поиска ('search').
     """
     if msg.from_user is None:
         await msg.answer("📄 Файл получен, но не удалось определить пользователя.")
@@ -1318,11 +1360,31 @@ async def handle_document(msg: Message, bot: Bot) -> None:
 
     await msg.answer("🍪 Cookies получены. Пробую снова...")
 
+    pending_kind = (pending.get("kind") or "").lower()
+    if pending_kind == "search":
+        query_any = pending.get("query")
+        if not isinstance(query_any, str) or not query_any.strip():
+            await msg.answer("❌ Нет запроса для повтора поиска.")
+            return
+        query = query_any.strip()
+        AWAITING_COOKIES.pop(msg.from_user.id, None)
+        try:
+            results = await search_tracks(query, cookies_path=cookies_path)
+            USER_SEARCHES[msg.from_user.id] = {"results": results, "page": 0}
+            if not results:
+                await msg.answer("🙁 Ничего не найдено даже с cookies.")
+                return
+            kb = build_results_kb(msg.from_user.id)
+            await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
+        except Exception:
+            await msg.answer("❌ Не удалось выполнить поиск даже с cookies.")
+        return
+
+    # ...existing code прежнего повтора скачивания (kind='download')...
     url_any = pending.get("url")
     if not isinstance(url_any, str) or not url_any:
         await msg.answer("❌ Нет URL для повтора.")
         return
-    url = url_any
     AWAITING_COOKIES.pop(msg.from_user.id, None)
     lock = await begin_user_download(msg.from_user.id)
     if not lock:
