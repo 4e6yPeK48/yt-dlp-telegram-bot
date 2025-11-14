@@ -7,7 +7,7 @@ import tempfile
 import shutil
 from contextlib import suppress
 from urllib.parse import urlparse
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Pattern
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import logging
 from logging.handlers import TimedRotatingFileHandler
 import io
@@ -86,6 +86,7 @@ def setup_logging(log_dir: str = "logs") -> None:
 
     class OnlyLoggerFilter(logging.Filter):
         """Пропускает только записи выбранного логгера (по префиксу имени)."""
+
         def __init__(self, prefix: str) -> None:
             super().__init__()
             self.prefix = prefix
@@ -213,7 +214,7 @@ def is_audio_platform(url: str) -> bool:
         url (str): URL ресурса.
 
     Returns:
-        bool: True если сайт похоже аудио-площадка.
+        bool: True, если сайт похоже аудио-площадка.
     """
     try:
         u = urlparse(url)
@@ -259,7 +260,7 @@ def is_youtube_url(url: str) -> bool:
         url (str): Проверяемый URL.
 
     Returns:
-        bool: True если URL относится к YouTube.
+        bool: True, если URL относится к YouTube.
     """
     try:
         host = (urlparse(url).netloc or "").lower()
@@ -396,6 +397,14 @@ def build_main_reply_kb() -> ReplyKeyboardMarkup:
 
 
 def parse_main_button_intent(text: str) -> Optional[str]:
+    """Определяет намерение пользователя на основе текста кнопки.
+
+    Args:
+        text (str): Текст кнопки.
+
+    Returns:
+        Optional[str]: Намерение ('menu', 'help', 'settings') или None.
+    """
     t = (text or "").strip()
     if not t:
         return None
@@ -619,12 +628,11 @@ async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Di
             return t
         ts = it.get("thumbnails")
         if isinstance(ts, list) and ts:
-            # пробуем выбрать самый приоритетный/большой
             def key_fn(x: Dict[str, Any]) -> Tuple[int, int, int]:
                 pref = int(x.get("preference") or 0)
                 w = int(x.get("width") or 0)
                 h = int(x.get("height") or 0)
-                return (pref, w * h, w + h)
+                return pref, w * h, w + h
 
             try:
                 ts_sorted = sorted(ts, key=key_fn, reverse=True)
@@ -1662,7 +1670,8 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             cur_mb = real_size / (1024 * 1024)
             with suppress(Exception):
                 os.remove(cookies_path)
-            logger.info("Слишком большой сохранённый файл cookies от %s: %.2f МБ (лимит %.0f МБ)", msg.from_user.id, cur_mb, lim_mb)
+            logger.info("Слишком большой сохранённый файл cookies от %s: %.2f МБ (лимит %.0f МБ)", msg.from_user.id,
+                        cur_mb, lim_mb)
             await msg.answer(
                 f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
             )
@@ -1728,9 +1737,11 @@ async def handle_document(msg: Message, bot: Bot) -> None:
                 "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
             )
             return
-        logger.info("Загрузка с cookies завершена: файлов к отправке %d (user=%s, mode=%s)", len(files), msg.from_user.id, mode)
+        logger.info("Загрузка с cookies завершена: файлов к отправке %d (user=%s, mode=%s)", len(files),
+                    msg.from_user.id, mode)
         await send_by_mode(bot, msg.chat.id, mode, files)
-        logger.info("Отправка (cookies) завершена: отправлено %d файлов (user=%s, mode=%s)", len(files), msg.from_user.id, mode)
+        logger.info("Отправка (cookies) завершена: отправлено %d файлов (user=%s, mode=%s)", len(files),
+                    msg.from_user.id, mode)
     except Exception:
         logger.info("Ошибка при загрузке с cookies (user=%s, mode=%s)", msg.from_user.id, mode)
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")
