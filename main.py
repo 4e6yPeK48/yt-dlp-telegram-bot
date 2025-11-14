@@ -437,6 +437,45 @@ async def ytdlp_extract(
 
     return await asyncio.to_thread(_run)
 
+# --- Новый хелпер форматирования длительности ---
+def format_duration_hms(dur_any: Optional[Any]) -> str:
+    """Форматирует длительность в мм:сс или чч:мм:сс."""
+    if isinstance(dur_any, (int, float)) and dur_any >= 0:
+        sec = int(dur_any)
+        h, rem = divmod(sec, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+    return "—"
+
+# --- Новый хелпер извлечения базовой информации по URL ---
+async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Dict[str, Any]:
+    """Возвращает {'title': str, 'duration': int|None} без скачивания."""
+    ydl_opts: Dict[str, Any] = {
+        "quiet": True,
+        "skip_download": True,
+        "noplaylist": False,
+        "playlist_items": "1",
+        "logger": logging.getLogger("yt_dlp"),
+    }
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+    info = await ytdlp_extract(url, ydl_opts, download=False)
+    item = info
+    try:
+        entries = info.get("entries") if isinstance(info, dict) else None
+        if isinstance(entries, list) and entries:
+            item = entries[0]
+    except Exception:
+        pass
+    title = (
+        (item.get("title") if isinstance(item, dict) else None)
+        or (item.get("fulltitle") if isinstance(item, dict) else None)
+        or (item.get("id") if isinstance(item, dict) else None)
+        or "Без названия"
+    )
+    duration = (item.get("duration") if isinstance(item, dict) else None)
+    return {"title": title, "duration": duration}
+
 
 async def search_tracks_without_cookies(query: str) -> List[Dict[str, Any]]:
     """Ищет треки на YouTube и применяет ограничение по длительности.
@@ -1163,8 +1202,18 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         # Новое поведение: сначала предлагаем варианты скачивания
         token = save_pending_url(uid, text)
         kb = build_download_choice_kb(uid, token)
+        # Попытаться получить метаданные для красивого блока
+        info_text = ""
+        try:
+            info = await extract_basic_info(text, cookies_path=get_user_cookies_path(uid))
+            title = str(info.get("title") or "Без названия")
+            dur_s = info.get("duration")
+            dur_str = format_duration_hms(dur_s)
+            info_text = f"🎧 Файл найден:\n\nНазвание: {title}\nДлительность: {dur_str}\n\n"
+        except Exception:
+            pass
         await msg.answer(
-            "Выберите, что скачать для этой ссылки:",
+            f"{info_text}Выберите, что скачать для этой ссылки:",
             reply_markup=kb.as_markup(),
         )
         return
@@ -1308,7 +1357,7 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
 
         await try_cb_answer(cb)
 
-        # Закрываем окно поиска: удаляем сообщение с результатами и очищаем состояние
+        # Закрываем окно поиска
         with suppress(Exception):
             USER_SEARCHES.pop(cb.from_user.id, None)
         if cb.message is not None and isinstance(cb.message, Message):
@@ -1317,12 +1366,23 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             with suppress(Exception):
                 await cb.message.edit_reply_markup(reply_markup=None)
 
+        # Формируем текст с метаданными (если получится)
+        info_text = ""
+        try:
+            info = await extract_basic_info(url, cookies_path=get_user_cookies_path(cb.from_user.id))
+            title = str(info.get("title") or "Без названия")
+            dur_s = info.get("duration")
+            dur_str = format_duration_hms(dur_s)
+            info_text = f"🎧 Файл найден:\n\nНазвание: {title}\nДлительность: {dur_str}\n\n"
+        except Exception:
+            pass
+
         # Отправляем новое меню выбора скачивания отдельным сообщением
         chat_id = get_cb_chat_id(cb)
         if chat_id is not None:
             await bot.send_message(
                 chat_id,
-                "Выберите, что скачать для этой ссылки:",
+                f"{info_text}Выберите, что скачать для этой ссылки:",
                 reply_markup=kb.as_markup(),
             )
         return
