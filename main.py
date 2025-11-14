@@ -248,7 +248,6 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
             InlineKeyboardButton(text=f"{page + 1}/{pages}", callback_data="noop"),
             InlineKeyboardButton(text="Вперёд »", callback_data="page:next"),
         )
-    kb.row(InlineKeyboardButton(text="Настройки ⚙️", callback_data="settings:open"))
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
     return kb
 
@@ -1306,9 +1305,23 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         # Новое поведение: показываем меню выбора способа скачивания
         token = save_pending_url(cb.from_user.id, url)
         kb = build_download_choice_kb(cb.from_user.id, token)
+
         await try_cb_answer(cb)
+
+        # Закрываем окно поиска: удаляем сообщение с результатами и очищаем состояние
+        with suppress(Exception):
+            USER_SEARCHES.pop(cb.from_user.id, None)
         if cb.message is not None and isinstance(cb.message, Message):
-            await cb.message.answer(
+            with suppress(Exception):
+                await cb.message.delete()
+            with suppress(Exception):
+                await cb.message.edit_reply_markup(reply_markup=None)
+
+        # Отправляем новое меню выбора скачивания отдельным сообщением
+        chat_id = get_cb_chat_id(cb)
+        if chat_id is not None:
+            await bot.send_message(
+                chat_id,
                 "Выберите, что скачать для этой ссылки:",
                 reply_markup=kb.as_markup(),
             )
