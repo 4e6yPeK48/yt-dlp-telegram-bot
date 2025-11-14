@@ -53,7 +53,9 @@ TG_MAX_UPLOAD_BYTES: int = int(os.getenv("TG_MAX_UPLOAD_MB", "50")) * 1024 * 102
 COOKIES_MAX_BYTES: int = int(os.getenv("COOKIES_MAX_MB", "5")) * 1024 * 1024
 ALLOWED_COOKIES_EXTS: Set[str] = {".txt"}
 
-MAIN_BUTTONS: List[str] = ["/start", "/help", "/settings"]
+BTN_MENU: str = "🏠 Меню (/start, /menu)"
+BTN_HELP: str = "❓ Помощь (/help)"
+BTN_SETTINGS: str = "⚙️ Настройки (/settings)"
 
 # ========= Глобальные объекты =========
 router: Router = Router()
@@ -354,12 +356,37 @@ def build_main_reply_kb() -> ReplyKeyboardMarkup:
     """
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="/start"), KeyboardButton(text="/help")],
-            [KeyboardButton(text="/settings")],
+            [KeyboardButton(text=BTN_MENU), KeyboardButton(text=BTN_HELP), KeyboardButton(text=BTN_SETTINGS)],
         ],
         resize_keyboard=True,
         is_persistent=True,
     )
+
+
+def parse_main_button_intent(text: str) -> Optional[str]:
+    t = (text or "").strip()
+    if not t:
+        return None
+    low = t.lower()
+
+    if re.search(r"/start\b", low) or re.search(r"/menu\b", low):
+        return "menu"
+    if re.search(r"/help\b", low):
+        return "help"
+    if re.search(r"/settings\b", low):
+        return "settings"
+
+    cleaned = re.sub(r"[^\w\sА-Яа-яёЁ-]", " ", low)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    if re.search(r"\bменю\b", cleaned):
+        return "menu"
+    if re.search(r"\bпомощ", cleaned):
+        return "help"
+    if re.search(r"\bнастрой", cleaned):
+        return "settings"
+
+    return None
 
 
 async def try_cb_answer(cb: CallbackQuery, text: Optional[str] = None) -> None:
@@ -791,7 +818,8 @@ def make_duration_match_filter(max_seconds: int) -> Callable[[Dict[str, Any]], O
     return _mf
 
 
-async def download_media_to_temp(url: str, mode: str, cookies_path: Optional[str] = None) -> List[Tuple[str, Optional[str]]]:
+async def download_media_to_temp(url: str, mode: str, cookies_path: Optional[str] = None) -> List[
+    Tuple[str, Optional[str]]]:
     """Скачивает медиа и подготавливает миниатюры во временные директории.
 
     Args:
@@ -1096,12 +1124,16 @@ async def cmd_start(msg: Message) -> None:
         USER_SEARCHES.pop(uid, None)
         AWAITING_COOKIES.pop(uid, None)
     await msg.answer(
-        "✨ Отправьте ссылку — скачаю по вашим настройкам (лучшее качество). Плейлисты до 10.\n"
+        "✨ Отправьте ссылку — скачаю по вашим настройкам.\n"
         "📝 Или отправьте название — покажу список из 25 результатов.\n"
-        "⚙️ Команда: /settings — выбрать тип скачивания.\n"
         "🍪 Если нужен доступ — пришлите файл cookies.txt.",
         reply_markup=build_main_reply_kb(),
     )
+
+
+@router.message(Command("menu"))
+async def cmd_menu(msg: Message) -> None:
+    await cmd_start(msg)
 
 
 @router.message(Command("help"))
@@ -1113,9 +1145,9 @@ async def cmd_help(msg: Message) -> None:
     """
     await msg.answer(
         "ℹ️ Как пользоваться:\n"
-        "• 🔗 Ссылка → скачивание по выбранному режиму (авто/аудио/видео/без звука).\n"
+        "• 🔗 Ссылка → скачивание по выбранному режиму.\n"
         "• 🔎 Текст запроса → 25 результатов, 5 страниц по 5 кнопок.\n"
-        "• ⚙️ /settings — сменить тип скачивания.\n"
+        "• ⚙️ /settings — сменить дефолтный тип скачивания.\n"
         "• 🍪 Если просит cookies — отправьте cookies.txt.",
         reply_markup=build_main_reply_kb(),
     )
@@ -1335,6 +1367,7 @@ async def send_info_card(
 
 @router.message(F.text)
 async def handle_text(msg: Message, bot: Bot) -> None:
+    """Обрабатывает текст: команды/кнопки, URL (меню скачивания) или поиск."""
     """Обрабатывает текст: URL (меню скачивания) или поиск.
 
     Args:
@@ -1342,6 +1375,17 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         bot (Bot): Экземпляр бота.
     """
     raw = (msg.text or "").strip()
+    intent = parse_main_button_intent(raw)
+    if intent == "menu":
+        await cmd_start(msg)
+        return
+    if intent == "help":
+        await cmd_help(msg)
+        return
+    if intent == "settings":
+        await cmd_settings(msg)
+        return
+
     url = raw
     uid = msg.from_user.id if msg.from_user is not None else None
     logger.info("Запрос от %s: %s", str(uid), url[:200] if url else "")
