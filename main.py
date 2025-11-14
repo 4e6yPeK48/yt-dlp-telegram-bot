@@ -279,17 +279,6 @@ def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
 
 # ==== Новая постоянная стартовая клавиатура и меню настроек (ReplyKeyboard) ====
 MAIN_BUTTONS: List[str] = ["/start", "/help", "/settings"]
-SETTINGS_TEXT_TO_MODE: Dict[str, str] = {
-    "Автоопределение 🤖": "auto",
-    "Только аудио 🎵": "audio",
-    "Только видео (со звуком) 🎬🔊": "video",
-    "Только видео (без звука) 🎬🔇": "video_nosound",
-}
-BACK_BUTTON_TEXT: str = "⬅ Назад"
-SETTINGS_TITLES: List[str] = list(SETTINGS_TEXT_TO_MODE.keys())
-SETTINGS_REPLY_RE: Pattern[str] = re.compile(
-    r"^(?:✅\s*)?(%s)$" % "|".join(map(re.escape, SETTINGS_TITLES))
-)
 
 
 def build_main_reply_kb() -> ReplyKeyboardMarkup:
@@ -303,28 +292,6 @@ def build_main_reply_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="/start"), KeyboardButton(text="/help")],
             [KeyboardButton(text="/settings")],
         ],
-        resize_keyboard=True,
-        is_persistent=True,
-    )
-
-
-def build_settings_reply_kb(user_id: int) -> ReplyKeyboardMarkup:
-    """Строит reply-клавиатуру настроек, помечая текущий режим.
-
-    Args:
-        user_id: Идентификатор пользователя.
-
-    Returns:
-        Разметка клавиатуры.
-    """
-    mode = get_user_mode(user_id)
-    rows: List[List[KeyboardButton]] = []
-    for title, m in SETTINGS_TEXT_TO_MODE.items():
-        prefix = "✅ " if m == mode else ""
-        rows.append([KeyboardButton(text=f"{prefix}{title}")])
-    rows.append([KeyboardButton(text=BACK_BUTTON_TEXT)])
-    return ReplyKeyboardMarkup(
-        keyboard=rows,
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -971,11 +938,7 @@ async def cmd_help(msg: Message) -> None:
 
 @router.message(Command("settings"))
 async def cmd_settings(msg: Message) -> None:
-    """Открывает меню настроек.
-
-    Args:
-        msg: Входящее сообщение команды /settings.
-    """
+    """Открывает меню настроек (inline)."""
     if msg.from_user is None:
         await msg.answer(
             "⚙️ Настройки недоступны для этого типа сообщения.",
@@ -984,59 +947,32 @@ async def cmd_settings(msg: Message) -> None:
         return
     await msg.answer(
         "⚙️ Настройки типа скачивания:",
-        reply_markup=build_settings_reply_kb(msg.from_user.id),
+        reply_markup=build_settings_kb(msg.from_user.id).as_markup(),
     )
 
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
-    """Открывает настройки из инлайн-кнопки.
-
-    Args:
-        cb: CallbackQuery от нажатия кнопки.
-    """
+    """Открывает настройки из инлайн-кнопки."""
     await try_cb_answer(cb)
     if cb.from_user is None:
         return
     if cb.message is not None and isinstance(cb.message, Message):
         await cb.message.answer(
             "⚙️ Настройки типа скачивания:",
-            reply_markup=build_settings_reply_kb(cb.from_user.id),
+            reply_markup=build_settings_kb(cb.from_user.id).as_markup(),
         )
 
 
-@router.message(F.text.regexp(SETTINGS_REPLY_RE))
-async def handle_settings_choice(msg: Message) -> None:
-    """Обрабатывает выбор режима из reply-клавиатуры.
-
-    Args:
-        msg: Сообщение с выбранным пунктом меню настроек.
-    """
-    if msg.from_user is None:
-        return
-    raw = (msg.text or "").strip()
-    if raw.startswith("✅"):
-        raw = raw[1:].strip()
-    mode = SETTINGS_TEXT_TO_MODE.get(raw)
-    if not mode:
-        return
-    set_user_mode(msg.from_user.id, mode)
-    await msg.answer(
-        f"✅ Режим обновлён: {raw}",
-        reply_markup=build_settings_reply_kb(msg.from_user.id),
-    )
-
-
-@router.message(F.text == BACK_BUTTON_TEXT)
-async def handle_settings_back(msg: Message) -> None:
-    """Возврат к основной клавиатуре из меню настроек.
-
-    Args:
-        msg: Сообщение с нажатием кнопки «Назад».
-    """
-    await msg.answer(
-        "↩️ Возврат к начальной клавиатуре.", reply_markup=build_main_reply_kb()
-    )
+@router.callback_query(F.data == "settings:close")
+async def cb_settings_close(cb: CallbackQuery) -> None:
+    """Закрывает сообщение с меню настроек."""
+    await try_cb_answer(cb)
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.delete()
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=None)
 
 
 @router.callback_query(F.data.startswith("setmode:"))
