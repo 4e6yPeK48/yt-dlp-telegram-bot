@@ -391,11 +391,16 @@ def make_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
 def make_multiline_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
     """Очищает текст, сохраняя переносы строк."""
     t = text or ""
-    t = re.sub(r"[\x00-\x1f\x7f]", "", t)
+    # нормализуем переносы
+    t = t.replace("\r\n", "\n").replace("\r", "\n")
+    # удаляем управляющие символы, кроме \n (исключаем 0x0A)
+    t = re.sub(r"[\x00-\x09\x0B-\x0C\x0E-\x1F\x7F]", "", t)
+    # удаляем скрытые юникод-символы управления направлением и проч.
     t = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F]", "", t)
-    # убираем хвостовые пробелы по строкам, но сохраняем структуру
-    t = "\n".join(line.rstrip() for line in t.splitlines())
-    t = t.strip()
+    # тримим пробелы справа по строкам, сохраняя структуру переносов
+    lines = [line.rstrip() for line in t.split("\n")]
+    t = "\n".join(lines)
+    # не схлопываем последовательные пустые строки
     if len(t) > limit:
         t = t[: limit - 1] + "…"
     return t
