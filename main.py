@@ -935,15 +935,22 @@ async def send_by_mode(
         await send_video_files(bot, chat_id, items)
 
 
-def remember_cookie_request(user_id: int, kind: str, url: str) -> None:
+def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, mode: Optional[str] = None) -> None:
     """Сохраняет состояние ожидания cookies для пользователя.
 
     Args:
         user_id: Идентификатор пользователя.
-        kind: Тип запроса ('download'|'pick'|'search').
-        url: URL, который нужно повторить (для 'search' не используется).
+        kind: Тип запроса ('download'|'search').
+        url: URL для повтора (для 'search' не используется).
+        mode: Выбранный режим скачивания ('audio'|'video'|'video_nosound'|'auto'), если актуально.
     """
-    AWAITING_COOKIES[user_id] = {"kind": kind, "url": url, "asked": True}
+    payload: Dict[str, Any] = {"kind": kind, "asked": True}
+    if url:
+        payload["url"] = url
+    if mode:
+        payload["mode"] = mode
+    AWAITING_COOKIES[user_id] = payload
+
 
 def remember_search_cookie_request(user_id: int, query: str) -> None:
     """Сохраняет ожидание cookies для повторения поиска."""
@@ -1115,7 +1122,8 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     await try_cb_answer(cb)
     await bot.send_message(chat_id, "⏳ Скачиваю, подождите...")
     try:
-        files = await download_media_to_temp(url, mode=mode)
+        cookies_path = get_user_cookies_path(user_id)
+        files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
             await bot.send_message(
                 chat_id,
@@ -1124,7 +1132,8 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
             return
         await send_by_mode(bot, chat_id, mode, files)
     except DownloadError:
-        remember_cookie_request(user_id, kind="download", url=url)
+        # Сохраняем и URL, и выбранный пользователем режим
+        remember_cookie_request(user_id, kind="download", url=url, mode=mode)
         await bot.send_message(
             chat_id,
             "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
@@ -1380,18 +1389,29 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             await msg.answer("❌ Не удалось выполнить поиск даже с cookies.")
         return
 
+    # Повтор скачивания
     url_any = pending.get("url")
     if not isinstance(url_any, str) or not url_any:
         await msg.answer("❌ Нет URL для повтора.")
         return
+    url = url_any  # используем сохранённый URL
+
+    # Восстанавливаем выбранный режим, если он был сохранён; иначе авто-логика
+    pending_mode = pending.get("mode")
+    if isinstance(pending_mode, str) and pending_mode in {"audio", "video", "video_nosound"}:
+        mode = pending_mode
+    elif pending_mode == "auto":
+        mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
+    else:
+        mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
+
     AWAITING_COOKIES.pop(msg.from_user.id, None)
     lock = await begin_user_download(msg.from_user.id)
     if not lock:
         await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
     try:
-        mode = decide_effective_mode(get_user_mode(msg.from_user.id), url_any)
-        files = await download_media_to_temp(url_any, mode=mode, cookies_path=cookies_path)
+        files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
             await msg.answer(
                 "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
