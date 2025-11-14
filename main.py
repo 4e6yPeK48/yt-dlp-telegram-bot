@@ -53,6 +53,8 @@ TG_MAX_UPLOAD_BYTES: int = int(os.getenv("TG_MAX_UPLOAD_MB", "50")) * 1024 * 102
 COOKIES_MAX_BYTES: int = int(os.getenv("COOKIES_MAX_MB", "5")) * 1024 * 1024
 ALLOWED_COOKIES_EXTS: Set[str] = {".txt"}
 
+MAIN_BUTTONS: List[str] = ["/start", "/help", "/settings"]
+
 # ========= Глобальные объекты =========
 router: Router = Router()
 dp: Dispatcher = Dispatcher()
@@ -65,7 +67,8 @@ COOKIES_DIR: str = os.path.join(os.getcwd(), "cookies")
 os.makedirs(COOKIES_DIR, exist_ok=True)
 USER_SETTINGS: Dict[int, Dict[str, str]] = {}
 USER_LOCKS: Dict[int, asyncio.Lock] = {}
-PENDING_DOWNLOADS: Dict[str, Dict[str, Any]] = {}  # token -> {user_id, url}
+PENDING_DOWNLOADS: Dict[str, Dict[str, Any]] = {}
+
 
 # ========= Логирование =========
 def setup_logging(log_dir: str = "logs") -> None:
@@ -251,6 +254,7 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
     return kb
 
+
 def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
     """Строит инлайн-меню выбора режима скачивания.
 
@@ -275,15 +279,15 @@ def build_settings_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.row(InlineKeyboardButton(text="Закрыть", callback_data="settings:close"))
     return kb
 
-# Новое: инлайн-меню выбора действия для ссылки
+
 def make_dl_token() -> str:
     t = ""
-    # гарантируем уникальность и компактность токена
     for _ in range(5):
         t = secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:10]
         if t not in PENDING_DOWNLOADS:
             break
     return t
+
 
 def build_download_choice_kb(user_id: int, token: str) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
@@ -293,13 +297,11 @@ def build_download_choice_kb(user_id: int, token: str) -> InlineKeyboardBuilder:
     kb.row(InlineKeyboardButton(text="⚙️ Изменить тип скачивания", callback_data="settings:open"))
     return kb
 
+
 def save_pending_url(user_id: int, url: str) -> str:
     token = make_dl_token()
     PENDING_DOWNLOADS[token] = {"user_id": user_id, "url": url}
     return token
-
-# ==== Новая постоянная стартовая клавиатура и меню настроек (ReplyKeyboard) ====
-MAIN_BUTTONS: List[str] = ["/start", "/help", "/settings"]
 
 
 def build_main_reply_kb() -> ReplyKeyboardMarkup:
@@ -418,7 +420,7 @@ def end_user_download(lock: Optional[asyncio.Lock]) -> None:
 
 
 async def ytdlp_extract(
-    url_or_query: str, ydl_opts: Dict[str, Any], download: bool
+        url_or_query: str, ydl_opts: Dict[str, Any], download: bool
 ) -> Dict[str, Any]:
     """Выполняет извлечение/скачивание через yt-dlp в отдельном потоке.
 
@@ -437,7 +439,7 @@ async def ytdlp_extract(
 
     return await asyncio.to_thread(_run)
 
-# --- Новый хелпер форматирования длительности ---
+
 def format_duration_hms(dur_any: Optional[Any]) -> str:
     """Форматирует длительность в мм:сс или чч:мм:сс."""
     if isinstance(dur_any, (int, float)) and dur_any >= 0:
@@ -447,7 +449,7 @@ def format_duration_hms(dur_any: Optional[Any]) -> str:
         return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
     return "—"
 
-# --- Новый хелпер извлечения базовой информации по URL ---
+
 async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Dict[str, Any]:
     """Возвращает {'title': str, 'duration': int|None} без скачивания."""
     ydl_opts: Dict[str, Any] = {
@@ -468,48 +470,13 @@ async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Di
     except Exception:
         pass
     title = (
-        (item.get("title") if isinstance(item, dict) else None)
-        or (item.get("fulltitle") if isinstance(item, dict) else None)
-        or (item.get("id") if isinstance(item, dict) else None)
-        or "Без названия"
+            (item.get("title") if isinstance(item, dict) else None)
+            or (item.get("fulltitle") if isinstance(item, dict) else None)
+            or (item.get("id") if isinstance(item, dict) else None)
+            or "Без названия"
     )
     duration = (item.get("duration") if isinstance(item, dict) else None)
     return {"title": title, "duration": duration}
-
-
-async def search_tracks_without_cookies(query: str) -> List[Dict[str, Any]]:
-    """Ищет треки на YouTube и применяет ограничение по длительности.
-
-    Args:
-        query: Поисковая строка.
-
-    Returns:
-        Список словарей результатов: title, url, duration, channel.
-    """
-    ydl_opts: Dict[str, Any] = {
-        "quiet": True,
-        "skip_download": True,
-        "noplaylist": True,
-        "default_search": "ytsearch",
-    }
-    info = await ytdlp_extract(
-        f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False
-    )
-    entries = info.get("entries") or []
-    results: List[Dict[str, Any]] = []
-    for e in entries:
-        duration = e.get("duration")
-        if isinstance(duration, (int, float)) and duration > DURATION_LIMIT_SEC:
-            continue
-        url = e.get("webpage_url") or e.get("url")
-        if not url and e.get("id"):
-            url = f"https://www.youtube.com/watch?v={e['id']}"
-        title = e.get("title") or "Без названия"
-        channel = e.get("uploader") or e.get("channel") or ""
-        results.append(
-            {"title": title, "url": url, "duration": duration, "channel": channel}
-        )
-    return results
 
 
 async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -618,7 +585,7 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
             im = im.convert("RGB")
             im = ImageOps.fit(
                 im, THUMB_SIZE, method=Resampling.LANCZOS
-            )  # заменено: Image.LANCZOS -> Resampling.LANCZOS
+            )
             quality = 90
             min_q = 40
             step = 5
@@ -695,7 +662,7 @@ def extract_id_from_base(base: str) -> Optional[str]:
 
 
 def make_duration_match_filter(
-    max_seconds: int,
+        max_seconds: int,
 ) -> Callable[[Dict[str, Any]], Optional[str]]:
     """Создаёт фильтр yt-dlp, отвергающий записи длиннее max_seconds.
 
@@ -716,9 +683,9 @@ def make_duration_match_filter(
 
 
 async def download_media_to_temp(
-    url: str,
-    mode: str,
-    cookies_path: Optional[str] = None,
+        url: str,
+        mode: str,
+        cookies_path: Optional[str] = None,
 ) -> List[Tuple[str, Optional[str]]]:
     """Скачивает медиа во временную директорию и подготавливает обложки.
 
@@ -850,12 +817,12 @@ async def download_media_to_temp(
 
 
 async def send_media_files(
-    bot: Bot,
-    chat_id: int,
-    items: List[Tuple[str, Optional[str]]],
-    method: str,
-    media_arg: str,
-    extra: Optional[Dict[str, Any]] = None,
+        bot: Bot,
+        chat_id: int,
+        items: List[Tuple[str, Optional[str]]],
+        method: str,
+        media_arg: str,
+        extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Отправляет медиафайлы по одному с опциональными обложками.
 
@@ -924,7 +891,7 @@ async def send_media_files(
 
 
 async def send_audio_files(
-    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+        bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
 ) -> None:
     """Отправляет список аудиофайлов.
 
@@ -937,7 +904,7 @@ async def send_audio_files(
 
 
 async def send_video_files(
-    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+        bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
 ) -> None:
     """Отправляет список видеофайлов.
 
@@ -957,7 +924,7 @@ async def send_video_files(
 
 
 async def send_by_mode(
-    bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
+        bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
 ) -> None:
     """Выбирает способ отправки в зависимости от режима.
 
@@ -993,6 +960,7 @@ def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, 
 def remember_search_cookie_request(user_id: int, query: str) -> None:
     """Сохраняет ожидание cookies для повторения поиска."""
     AWAITING_COOKIES[user_id] = {"kind": "search", "query": query, "asked": True}
+
 
 def get_user_cookies_path(user_id: int) -> str:
     """Возвращает путь к файлу cookies пользователя.
@@ -1108,10 +1076,8 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
     await cb.answer("✅ Режим обновлён.")
 
 
-# Новый обработчик: выбор действия для ссылки (скачивание)
 @router.callback_query(F.data.startswith("dl:"))
 async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
-    # формат: dl:{mode}:{token}
     data = cb.data or ""
     parts = data.split(":")
     if len(parts) != 3:
@@ -1131,17 +1097,14 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         await try_cb_answer(cb, "⚠️ Ошибка данных.")
         return
 
-    # блокируем повторное использование токена
     with suppress(Exception):
         PENDING_DOWNLOADS.pop(token, None)
 
-    # определяем режим
     if mode_sel == "auto":
         mode = decide_effective_mode(get_user_mode(user_id), url)
     else:
         mode = mode_sel
 
-    # удаляем клавиатуру у сообщения меню (если есть доступ)
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
             await cb.message.edit_reply_markup(reply_markup=None)
@@ -1170,7 +1133,6 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
             return
         await send_by_mode(bot, chat_id, mode, files)
     except DownloadError:
-        # Сохраняем и URL, и выбранный пользователем режим
         remember_cookie_request(user_id, kind="download", url=url, mode=mode)
         await bot.send_message(
             chat_id,
@@ -1199,10 +1161,8 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         if uid is None:
             await msg.answer("⚠️ Не удалось определить пользователя.")
             return
-        # Новое поведение: сначала предлагаем варианты скачивания
         token = save_pending_url(uid, text)
         kb = build_download_choice_kb(uid, token)
-        # Попытаться получить метаданные для красивого блока
         info_text = ""
         try:
             info = await extract_basic_info(text, cookies_path=get_user_cookies_path(uid))
@@ -1351,13 +1311,11 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             await try_cb_answer(cb, "⚠️ Нет URL для выбранного трека.")
             return
 
-        # Новое поведение: показываем меню выбора способа скачивания
         token = save_pending_url(cb.from_user.id, url)
         kb = build_download_choice_kb(cb.from_user.id, token)
 
         await try_cb_answer(cb)
 
-        # Закрываем окно поиска
         with suppress(Exception):
             USER_SEARCHES.pop(cb.from_user.id, None)
         if cb.message is not None and isinstance(cb.message, Message):
@@ -1366,7 +1324,6 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             with suppress(Exception):
                 await cb.message.edit_reply_markup(reply_markup=None)
 
-        # Формируем текст с метаданными (если получится)
         info_text = ""
         try:
             info = await extract_basic_info(url, cookies_path=get_user_cookies_path(cb.from_user.id))
@@ -1377,7 +1334,6 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         except Exception:
             pass
 
-        # Отправляем новое меню выбора скачивания отдельным сообщением
         chat_id = get_cb_chat_id(cb)
         if chat_id is not None:
             await bot.send_message(
@@ -1462,14 +1418,12 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             await msg.answer("❌ Не удалось выполнить поиск даже с cookies.")
         return
 
-    # Повтор скачивания
     url_any = pending.get("url")
     if not isinstance(url_any, str) or not url_any:
         await msg.answer("❌ Нет URL для повтора.")
         return
-    url = url_any  # используем сохранённый URL
+    url = url_any
 
-    # Восстанавливаем выбранный режим, если он был сохранён; иначе авто-логика
     pending_mode = pending.get("mode")
     if isinstance(pending_mode, str) and pending_mode in {"audio", "video", "video_nosound"}:
         mode = pending_mode
