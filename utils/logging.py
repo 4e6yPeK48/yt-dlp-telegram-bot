@@ -4,26 +4,13 @@ from logging.handlers import TimedRotatingFileHandler
 
 
 class OnlyLoggerFilter(logging.Filter):
-    """Filter that only passes log records from a specific logger prefix."""
+    """Пропускает только записи выбранного логгера (по префиксу имени)."""
 
     def __init__(self, prefix: str) -> None:
-        """Initialize filter with logger name prefix.
-
-        Args:
-            prefix: Logger name prefix to match.
-        """
         super().__init__()
         self.prefix = prefix
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Check if record's logger name starts with prefix.
-
-        Args:
-            record: Log record to check.
-
-        Returns:
-            True if record should be logged, False otherwise.
-        """
         return record.name.startswith(self.prefix)
 
 
@@ -33,17 +20,6 @@ def make_rotating(
     level: int,
     fmt: logging.Formatter,
 ) -> TimedRotatingFileHandler:
-    """Create a rotating file handler with midnight rotation.
-
-    Args:
-        log_dir: Directory for log files.
-        path: Log file name.
-        level: Logging level.
-        fmt: Log formatter.
-
-    Returns:
-        Configured TimedRotatingFileHandler.
-    """
     handler = TimedRotatingFileHandler(
         filename=os.path.join(log_dir, path),
         when="midnight",
@@ -56,18 +32,10 @@ def make_rotating(
 
 
 def setup_logging(log_dir: str = "logs") -> None:
-    """Configure logging with console output and rotating file handlers.
-
-    Sets up:
-    - Console handler (INFO level, bot logger only)
-    - Debug log file (all loggers)
-    - Info log file (bot logger only)
-    - Warning log file (all loggers)
-    - Error log file (all loggers)
-    - Separate error logs for third-party libraries
+    """Настраивает логирование: консольный вывод и ротацию по уровням.
 
     Args:
-        log_dir: Directory for log files.
+        log_dir (str): Директория для файлов логов.
     """
     os.makedirs(log_dir, exist_ok=True)
     fmt = logging.Formatter(

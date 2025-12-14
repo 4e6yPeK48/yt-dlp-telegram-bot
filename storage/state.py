@@ -15,23 +15,23 @@ PENDING_DOWNLOADS: Dict[str, Dict[str, Any]] = {}
 
 
 def get_user_mode(user_id: int) -> str:
-    """Get user's current download mode.
+    """Возвращает текущий режим пользователя.
 
     Args:
-        user_id: Telegram user ID.
+        user_id (int): Идентификатор пользователя Telegram.
 
     Returns:
-        Mode string ('auto', 'audio', 'video').
+        str: Один из: 'auto', 'audio', 'video', 'video_nosound'.
     """
     return (USER_SETTINGS.get(user_id) or {}).get("mode", "auto")
 
 
 def set_user_mode(user_id: int, mode: str) -> None:
-    """Set user's download mode.
+    """Сохраняет выбранный режим пользователя.
 
     Args:
-        user_id: Telegram user ID.
-        mode: Mode to set ('auto', 'audio', 'video').
+        user_id (int): Идентификатор пользователя.
+        mode (str): Режим ('auto'|'audio'|'video'|'video_nosound').
     """
     if user_id not in USER_SETTINGS:
         USER_SETTINGS[user_id] = {}
@@ -39,13 +39,13 @@ def set_user_mode(user_id: int, mode: str) -> None:
 
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
-    """Get or create an asyncio lock for a user.
+    """Получает или создаёт Lock для пользователя.
 
     Args:
-        user_id: Telegram user ID.
+        user_id (int): Идентификатор пользователя.
 
     Returns:
-        User's asyncio.Lock instance.
+        asyncio.Lock: Lock пользователя.
     """
     if user_id not in USER_LOCKS:
         USER_LOCKS[user_id] = asyncio.Lock()
@@ -53,13 +53,13 @@ def get_user_lock(user_id: int) -> asyncio.Lock:
 
 
 async def begin_user_download(user_id: int) -> Optional[asyncio.Lock]:
-    """Attempt to acquire user's download lock (non-blocking).
+    """Пытается захватить пользовательский Lock перед загрузкой.
 
     Args:
-        user_id: Telegram user ID.
+        user_id (int): Идентификатор пользователя.
 
     Returns:
-        Lock instance if acquired, None if already locked.
+        Optional[asyncio.Lock]: Захваченный Lock или None если занят.
     """
     lock = get_user_lock(user_id)
     if lock.locked():
@@ -68,10 +68,10 @@ async def begin_user_download(user_id: int) -> Optional[asyncio.Lock]:
 
 
 async def end_user_download(lock: Optional[asyncio.Lock]) -> None:
-    """Release user's download lock if held.
+    """Освобождает захваченный Lock.
 
     Args:
-        lock: Lock instance to release (or None).
+        lock (Optional[asyncio.Lock]): Объект блокировки.
     """
     if lock is not None and lock.locked():
         lock.release()
@@ -82,15 +82,15 @@ def slice_page(
     page: int,
     page_size: int = PAGE_SIZE,
 ) -> Tuple[List[Any], int]:
-    """Get a slice of items for pagination.
+    """Возвращает элементы указанной страницы и общее число страниц.
 
     Args:
-        items: Full list of items.
-        page: Current page number (0-indexed).
-        page_size: Items per page.
+        items (List[Any]): Полный список элементов.
+        page (int): Номер страницы (0-индексация).
+        page_size (int): Размер страницы.
 
     Returns:
-        Tuple of (page_items, total_pages, current_page).
+        Tuple[List[Any], int]: Элементы текущей страницы и всего страниц.
     """
     pages = max(1, math.ceil(len(items) / page_size))
     page = max(0, min(page, pages - 1))
@@ -100,12 +100,12 @@ def slice_page(
 
 
 def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, mode: Optional[str] = None) -> None:
-    """Store pending cookie request for a direct URL download.
+    """Сохраняет ожидание cookies.
 
     Args:
-        user_id: Telegram user ID.
+        user_id (int): Пользователь.
         kind (str): Тип ('download'|'search').
-        url: URL that requires cookies.
+        url (Optional[str]): URL для повтора.
         mode (Optional[str]): Режим ('audio'|'video'|'video_nosound'|'auto').
     """
     payload: Dict[str, Any] = {"kind": kind, "asked": True}
@@ -120,32 +120,32 @@ def remember_search_cookie_request(
     user_id: int,
     query: str,
 ) -> None:
-    """Store pending cookie request for a search query.
+    """Сохраняет ожидание cookies для поиска.
 
     Args:
-        user_id: Telegram user ID.
-        query: Search query that requires cookies.
+        user_id (int): Пользователь.
+        query (str): Поисковый запрос.
     """
     AWAITING_COOKIES[user_id] = {"kind": "search", "query": query, "asked": True}
 
 
 def get_user_cookies_path(user_id: int) -> str:
-    """Get path to user's cookies file.
+    """Возвращает путь к cookies.txt пользователя.
 
     Args:
-        user_id: Telegram user ID.
+        user_id (int): Идентификатор пользователя.
 
     Returns:
-        Path string to cookies file.
+        str: Путь к cookies.txt.
     """
     return os.path.join(COOKIES_DIR, f"{user_id}_cookies.txt")
 
 
 def make_dl_token() -> str:
-    """Generate a unique download token.
+    """Генерирует уникальный токен для отложенного скачивания.
 
     Returns:
-        Random hex token string.
+        str: Токен (10 символов [A-Za-z0-9]).
     """
     t = ""
     for _ in range(5):
@@ -156,14 +156,14 @@ def make_dl_token() -> str:
 
 
 def save_pending_url(user_id: int, url: str) -> str:
-    """Save URL for pending download and return token.
+    """Сохраняет URL для последующего выбора режима отправки.
 
     Args:
-        user_id: Telegram user ID.
-        url: URL to save.
+        user_id (int): Идентификатор пользователя.
+        url (str): Сохранённый URL.
 
     Returns:
-        Token to retrieve the pending download.
+        str: Токен сохранения.
     """
     token = make_dl_token()
     PENDING_DOWNLOADS[token] = {

@@ -4,14 +4,13 @@ from ..config import CAPTION_MAX_LEN
 
 
 def sanitize_query(text: str, max_len: int = 256) -> str:
-    """Clean search query by removing control characters and normalizing whitespace.
+    """Очищает поисковый запрос (управляющие символы, пробелы, длину).
 
     Args:
-        text: Raw input text.
-        max_len: Maximum allowed length.
+        text (str): Исходный текст.
 
     Returns:
-        Sanitized query string.
+        str: Санитизированный запрос.
     """
     t = re.sub(r"[\x00-\x1f\x7f]", "", text)
     t = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F]", "", t)
@@ -22,14 +21,14 @@ def sanitize_query(text: str, max_len: int = 256) -> str:
 
 
 def make_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
-    """Clean text and truncate for single-line caption.
+    """Очищает текст и обрезает его для подписи (однострочно).
 
     Args:
-        text: Raw text.
-        limit: Maximum length.
+        text (str): Исходный текст.
+        limit (int): Максимальная длина.
 
     Returns:
-        Prepared caption string.
+        str: Подготовленная подпись.
     """
     t = re.sub(r"[\x00-\x1f\x7f]", "", text or "")
     t = re.sub(r"[\u200B-\u200F\u202A-\u202E\u2060-\u206F]", "", t)
@@ -40,14 +39,14 @@ def make_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
 
 
 def make_multiline_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
-    """Clean text preserving newlines and truncate to limit.
+    """Очищает текст (с сохранением перевода строк) и обрезает до лимита.
 
     Args:
-        text: Raw text.
-        limit: Maximum length.
+        text (str): Исходный текст.
+        limit (int): Максимальная длина.
 
     Returns:
-        Prepared multiline text.
+        str: Подготовленный многострочный текст.
     """
     t = text or ""
     t = t.replace("\r\n", "\n").replace("\r", "\n")
@@ -61,13 +60,13 @@ def make_multiline_caption(text: str, limit: int = CAPTION_MAX_LEN) -> str:
 
 
 def format_duration_hms(dur_any: Optional[Any]) -> str:
-    """Format duration in seconds to mm:ss or hh:mm:ss.
+    """Форматирует длительность в мм:сс или чч:мм:сс.
 
     Args:
-        dur_any: Duration in seconds (int, float, or None).
+        dur_any (Optional[Any]): Длительность в секундах.
 
     Returns:
-        Formatted string or '—' if invalid.
+        str: Форматированная строка или '—'.
     """
     if isinstance(dur_any, (int, float)) and dur_any >= 0:
         sec = int(dur_any)
@@ -78,13 +77,13 @@ def format_duration_hms(dur_any: Optional[Any]) -> str:
 
 
 def parse_main_button_intent(text: str) -> Optional[str]:
-    """Determine user intent from button or command text.
+    """Определяет намерение пользователя на основе текста кнопки.
 
     Args:
-        text: Button or command text.
+        text (str): Текст кнопки.
 
     Returns:
-        Intent string ('menu', 'help', 'settings') or None.
+        Optional[str]: Намерение ('menu', 'help', 'settings') или None.
     """
     t = (text or "").strip()
     if not t:

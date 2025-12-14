@@ -1,17 +1,15 @@
-"""URL and platform validation utilities."""
-
 from contextlib import suppress
 from urllib.parse import urlparse
 
 
 def is_url(text: str) -> bool:
-    """Check if a string is a valid HTTP/HTTPS URL.
+    """Проверяет, является ли строка URL со схемой http/https.
 
     Args:
-        text: Input string to check.
+        text (str): Исходная строка.
 
     Returns:
-        True if the string is a valid URL with http/https scheme.
+        bool: True, если строка похожа на URL, иначе False.
     """
     with suppress(Exception):
         u = urlparse(text.strip())
@@ -20,13 +18,13 @@ def is_url(text: str) -> bool:
 
 
 def is_youtube_url(url: str) -> bool:
-    """Check if a URL belongs to YouTube or YouTube Music.
+    """Определяет, относится ли URL к YouTube/YouTube Music.
 
     Args:
-        url: URL to check.
+        url (str): Проверяемый URL.
 
     Returns:
-        True if the URL is from YouTube.
+        bool: True, если URL относится к YouTube.
     """
     try:
         host = (urlparse(url).netloc or "").lower()
@@ -39,13 +37,13 @@ def is_youtube_url(url: str) -> bool:
 
 
 def is_audio_platform(url: str) -> bool:
-    """Heuristically determine if the URL is from an audio-oriented platform.
+    """Эвристически определяет, что ресурс аудио-ориентирован.
 
     Args:
-        url: Resource URL.
+        url (str): URL ресурса.
 
     Returns:
-        True if the site appears to be an audio platform.
+        bool: True, если сайт похоже аудио-площадка.
     """
     try:
         u = urlparse(url)
