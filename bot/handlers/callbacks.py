@@ -41,7 +41,7 @@ from ...storage.state import (
     get_user_cookies_path,
     save_pending_url
 )
-
+from downloads import perform_download
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
@@ -156,31 +156,37 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
 
     await try_cb_answer(cb)
     await bot.send_message(chat_id, "⏳ Скачиваю, подождите...")
-    try:
-        cookies_path = get_user_cookies_path(user_id)
-        files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
-        if not files:
-            logger.info("Загрузка завершена: нечего отправлять (user=%s, mode=%s)", str(user_id), mode)
-            await bot.send_message(
-                chat_id,
-                "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
-            )
-            return
-        logger.info("Загрузка завершена: файлов к отправке %d (user=%s, mode=%s)", len(files), str(user_id), mode)
-        await send_by_mode(bot, chat_id, mode, files)
-        logger.info("Отправка завершена: отправлено %d файлов (user=%s, mode=%s)", len(files), str(user_id), mode)
-    except DownloadError:
-        logger.info("Загрузка требует cookies (user=%s, mode=%s)", str(user_id), mode)
+
+    cookies_path = get_user_cookies_path(user_id)
+
+    async def on_cookies_required():
         remember_cookie_request(user_id, kind="download", url=url, mode=mode)
         await bot.send_message(
             chat_id,
             "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
         )
-    except Exception:
-        logger.info("Ошибка при загрузке (user=%s, mode=%s)", str(user_id), mode)
+
+    async def on_nothing():
+        await bot.send_message(
+            chat_id,
+            "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
+        )
+
+    async def on_error():
         await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
-    finally:
-        await end_user_download(lock)
+
+    await perform_download(
+        bot=bot,
+        chat_id=chat_id,
+        user_id=user_id,
+        url=url,
+        mode=mode,
+        lock=lock,
+        cookies_path=cookies_path,
+        on_cookies_required=on_cookies_required,
+        on_nothing=on_nothing,
+        on_error=on_error,
+    )
 
 
 @router.callback_query(F.data == "noop")

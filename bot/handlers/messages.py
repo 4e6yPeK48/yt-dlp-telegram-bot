@@ -43,6 +43,7 @@ from ...storage.state import (
 )
 from ...utils.text import sanitize_query, parse_main_button_intent
 from ...utils.validators import is_url
+from downloads import perform_download
 
 
 @router.message(F.text)
@@ -234,21 +235,23 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         logger.info("Не удалось начать загрузку с cookies: другая загрузка идёт (user=%s)", msg.from_user.id)
         await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
-    try:
-        files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
-        if not files:
-            logger.info("Загрузка с cookies завершена: нечего отправлять (user=%s, mode=%s)", msg.from_user.id, mode)
-            await msg.answer(
-                "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
-            )
-            return
-        logger.info("Загрузка с cookies завершена: файлов к отправке %d (user=%s, mode=%s)", len(files),
-                    msg.from_user.id, mode)
-        await send_by_mode(bot, msg.chat.id, mode, files)
-        logger.info("Отправка (cookies) завершена: отправлено %d файлов (user=%s, mode=%s)", len(files),
-                    msg.from_user.id, mode)
-    except Exception:
-        logger.info("Ошибка при загрузке с cookies (user=%s, mode=%s)", msg.from_user.id, mode)
+
+    async def on_nothing():
+        await msg.answer(
+            "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
+        )
+
+    async def on_error():
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")
-    finally:
-        await end_user_download(lock)
+
+    await perform_download(
+        bot=bot,
+        chat_id=msg.chat.id,
+        user_id=msg.from_user.id,
+        url=url,
+        mode=mode,
+        lock=lock,
+        cookies_path=cookies_path,
+        on_nothing=on_nothing,
+        on_error=on_error,
+    )

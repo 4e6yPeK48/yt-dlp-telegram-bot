@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Bot token from environment
-BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
+# BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
+BOT_TOKEN: Optional[str] = "8524336951:AAFG9KLCfuSRK6igDPbP2RLnkikYMKlXxyk"
 
 # Search and pagination
 MAX_RESULTS: int = 25
