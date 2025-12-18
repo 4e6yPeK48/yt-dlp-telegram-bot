@@ -13,7 +13,8 @@ from bot.dispatcher import router, logger
 from bot.keyboards import (
     build_settings_kb,
     build_download_choice_kb,
-    build_results_kb
+    build_results_kb,
+    build_history_kb,
 )
 from config import (
     PAGE_SIZE,
@@ -22,7 +23,7 @@ from services.telegram import (
     send_info_card,
     get_cb_chat_id,
     try_cb_answer,
-    send_by_mode
+    send_by_mode,
 )
 from services.ytdlp import (
     decide_effective_mode,
@@ -44,8 +45,13 @@ from storage.state import (
     pop_searches,
     set_searches,
     pop_awaiting,
+    get_history,
+    set_history_page,
+    get_history_page,
+    reset_history_page,
 )
 from bot.handlers.downloads import perform_download
+
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
@@ -142,7 +148,9 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     else:
         mode = mode_sel
 
-    logger.info("Выбор скачивания: user=%s, mode=%s, url=%s", str(user_id), mode, url[:200])
+    logger.info(
+        "Выбор скачивания: user=%s, mode=%s, url=%s", str(user_id), mode, url[:200]
+    )
 
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
@@ -178,7 +186,9 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         )
 
     async def on_error():
-        await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
+        await bot.send_message(
+            chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
+        )
 
     await perform_download(
         bot=bot,
@@ -274,8 +284,7 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("pick:"))
 async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
-    """Начинает загрузку выбранного результата.
-    """
+    """Начинает загрузку выбранного результата."""
     data = cb.data or ""
     if ":" not in data:
         await try_cb_answer(cb, "⚠️ Некорректные данные.")
@@ -299,7 +308,12 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             await try_cb_answer(cb, "⚠️ Нет URL для выбранного трека.")
             return
 
-        logger.info("Выбор результата #%d пользователем %s: %s", idx, cb.from_user.id, (url or "")[:200])
+        logger.info(
+            "Выбор результата #%d пользователем %s: %s",
+            idx,
+            cb.from_user.id,
+            (url or "")[:200],
+        )
 
         token = save_pending_url(cb.from_user.id, url)
         kb = build_download_choice_kb(cb.from_user.id, token)
@@ -323,4 +337,128 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
                 cb.from_user.id,
                 reply_markup=kb.as_markup(),
             )
+        return
+
+
+@router.callback_query(F.data == "history:open")
+async def cb_history_open(cb: CallbackQuery) -> None:
+    await try_cb_answer(cb)
+    if cb.from_user is None:
+        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+        return
+    user_id = cb.from_user.id
+    items = get_history(user_id) or []
+    if not items:
+        await try_cb_answer(cb, "ℹ️ История пуста.")
+        return
+    set_history_page(user_id, 0)
+    kb = build_history_kb(user_id)
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.answer(
+                "📜 Ваша история загрузок:", reply_markup=kb.as_markup()
+            )
+
+
+@router.callback_query(F.data == "history:close")
+async def cb_history_close(cb: CallbackQuery) -> None:
+    await try_cb_answer(cb)
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.delete()
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=None)
+    if cb.from_user is not None:
+        reset_history_page(cb.from_user.id)
+
+
+@router.callback_query(F.data == "history:page:next")
+async def cb_history_next(cb: CallbackQuery) -> None:
+    await try_cb_answer(cb)
+    if cb.from_user is None:
+        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+        return
+    user_id = cb.from_user.id
+    items = get_history(user_id) or []
+    if not items:
+        await try_cb_answer(cb, "ℹ️ Нет истории.")
+        return
+    page = get_history_page(user_id)
+    _, pages = slice_page(items, page, PAGE_SIZE)
+    page = (page + 1) % pages
+    set_history_page(user_id, page)
+    kb = build_history_kb(user_id)
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
+    await try_cb_answer(cb)
+
+
+@router.callback_query(F.data == "history:page:prev")
+async def cb_history_prev(cb: CallbackQuery) -> None:
+    await try_cb_answer(cb)
+    if cb.from_user is None:
+        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+        return
+    user_id = cb.from_user.id
+    items = get_history(user_id) or []
+    if not items:
+        await try_cb_answer(cb, "ℹ️ Нет истории.")
+        return
+    page = get_history_page(user_id)
+    _, pages = slice_page(items, page, PAGE_SIZE)
+    page = (page - 1 + pages) % pages
+    set_history_page(user_id, page)
+    kb = build_history_kb(user_id)
+    if cb.message is not None and isinstance(cb.message, Message):
+        with suppress(Exception):
+            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
+    await try_cb_answer(cb)
+
+
+@router.callback_query(F.data.startswith("history:show:"))
+async def cb_history_show(cb: CallbackQuery) -> None:
+    await try_cb_answer(cb)
+    data = cb.data or ""
+    if ":" not in data:
+        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        return
+    with suppress(ValueError):
+        idx = int(data.split(":", 2)[2])
+        if cb.from_user is None:
+            await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+            return
+        user_id = cb.from_user.id
+        items = get_history(user_id) or []
+        if idx < 0 or idx >= len(items):
+            await try_cb_answer(cb, "⚠️ Некорректный выбор.")
+            return
+        entry = items[idx]
+        title = entry.get("title") or "Без названия"
+        url = entry.get("url") or "—"
+        mode = entry.get("mode") or "—"
+        duration = entry.get("duration")
+        dur_str = "—"
+        if isinstance(duration, (int, float)):
+            m, s = divmod(int(duration), 60)
+            dur_str = f"{m}:{s:02d}"
+        t = entry.get("time")
+        from datetime import datetime
+
+        time_str = (
+            datetime.fromtimestamp(t).isoformat(sep=" ", timespec="minutes")
+            if t
+            else "—"
+        )
+        text = (
+            f"📦 История загрузки:\n\n"
+            f"Название: {title}\n"
+            f"Режим: {mode}\n"
+            f"Длительность: {dur_str}\n"
+            f"URL: {url}\n"
+            f"Время: {time_str}"
+        )
+        chat_id = get_cb_chat_id(cb)
+        if chat_id is not None:
+            await cb.message.answer(text)
         return

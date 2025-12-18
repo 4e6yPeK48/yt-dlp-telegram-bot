@@ -9,15 +9,8 @@ from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import router, logger
-from bot.handlers.commands import (
-    cmd_start,
-    cmd_help,
-    cmd_settings
-)
-from bot.keyboards import (
-    build_download_choice_kb,
-    build_results_kb
-)
+from bot.handlers.commands import cmd_start, cmd_help, cmd_settings, cmd_history
+from bot.keyboards import build_download_choice_kb, build_results_kb
 from config import (
     COOKIES_MAX_BYTES,
     ALLOWED_COOKIES_EXTS,
@@ -65,6 +58,9 @@ async def handle_text(msg: Message, bot: Bot) -> None:
     if intent == "settings":
         await cmd_settings(msg)
         return
+    if intent == "history":
+        await cmd_history(msg)
+        return
 
     url = raw
     uid = msg.from_user.id if msg.from_user is not None else None
@@ -80,13 +76,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
             return
         token = save_pending_url(uid, url)
         kb = build_download_choice_kb(uid, token)
-        await send_info_card(
-            bot,
-            msg.chat.id,
-            url,
-            uid,
-            reply_markup=kb.as_markup()
-        )
+        await send_info_card(bot, msg.chat.id, url, uid, reply_markup=kb.as_markup())
         return
     query = sanitize_query(url)
     if not query:
@@ -111,7 +101,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
     except DownloadError as e:
         if uid is not None:
             remember_search_cookie_request(uid, query)
-        logger.info('Поиск требует cookies (user=%s): %s', str(uid), str(e))
+        logger.info("Поиск требует cookies (user=%s): %s", str(uid), str(e))
         await msg.answer(
             "🍪 Источник требует cookies или защиту (YouTube может просить вход).\n"
             "Пришлите файл cookies.txt — повторю поиск с cookies."
@@ -123,8 +113,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
 
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
-    """Обрабатывает загрузку cookies.txt и повторяет операцию.
-    """
+    """Обрабатывает загрузку cookies.txt и повторяет операцию."""
     if msg.from_user is None:
         logger.info("Получен файл, но не удалось определить пользователя.")
         await msg.answer("📄 Файл получен, но не удалось определить пользователя.")
@@ -145,15 +134,27 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     name_l = (doc.file_name or "").lower()
     ext = os.path.splitext(name_l)[1]
     size = doc.file_size or 0
-    logger.info("Получен файл cookies от %s: %s (%d байт)", msg.from_user.id, doc.file_name, size)
+    logger.info(
+        "Получен файл cookies от %s: %s (%d байт)",
+        msg.from_user.id,
+        doc.file_name,
+        size,
+    )
     if ext not in ALLOWED_COOKIES_EXTS:
-        logger.info("Некорректный формат файла cookies от %s: %s", msg.from_user.id, ext)
+        logger.info(
+            "Некорректный формат файла cookies от %s: %s", msg.from_user.id, ext
+        )
         await msg.answer("⚠️ Нужен файл cookies в формате Netscape: cookies.txt.")
         return
     if size and size > COOKIES_MAX_BYTES:
         lim_mb = COOKIES_MAX_BYTES / (1024 * 1024)
         cur_mb = size / (1024 * 1024)
-        logger.info("Слишком большой файл cookies от %s: %.2f МБ (лимит %.0f МБ)", msg.from_user.id, cur_mb, lim_mb)
+        logger.info(
+            "Слишком большой файл cookies от %s: %.2f МБ (лимит %.0f МБ)",
+            msg.from_user.id,
+            cur_mb,
+            lim_mb,
+        )
         await msg.answer(
             f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
         )
@@ -163,7 +164,12 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         await bot.download(doc, destination=cookies_path)
         with suppress(Exception):
             real_size = os.path.getsize(cookies_path)
-            logger.info("Cookies сохранены для %s: %s (%d байт)", msg.from_user.id, cookies_path, real_size)
+            logger.info(
+                "Cookies сохранены для %s: %s (%d байт)",
+                msg.from_user.id,
+                cookies_path,
+                real_size,
+            )
     except Exception:
         logger.info("Не удалось сохранить файл cookies от %s.", msg.from_user.id)
         await msg.answer("❌ Не удалось сохранить cookies.txt.")
@@ -176,8 +182,12 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             cur_mb = real_size / (1024 * 1024)
             with suppress(Exception):
                 os.remove(cookies_path)
-            logger.info("Слишком большой сохранённый файл cookies от %s: %.2f МБ (лимит %.0f МБ)", msg.from_user.id,
-                        cur_mb, lim_mb)
+            logger.info(
+                "Слишком большой сохранённый файл cookies от %s: %.2f МБ (лимит %.0f МБ)",
+                msg.from_user.id,
+                cur_mb,
+                lim_mb,
+            )
             await msg.answer(
                 f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
             )
@@ -190,22 +200,30 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     if pending_kind == "search":
         query_any = pending.get("query")
         if not isinstance(query_any, str) or not query_any.strip():
-            logger.info("Нет запроса для повтора поиска с cookies от %s.", msg.from_user.id)
+            logger.info(
+                "Нет запроса для повтора поиска с cookies от %s.", msg.from_user.id
+            )
             await msg.answer("❌ Нет запроса для повтора поиска.")
             return
         query = query_any.strip()
-        logger.info("Повтор поиска с cookies (user=%s, query=%s)", msg.from_user.id, query[:120])
+        logger.info(
+            "Повтор поиска с cookies (user=%s, query=%s)", msg.from_user.id, query[:120]
+        )
         pop_awaiting(msg.from_user.id)
         try:
             results = await search_tracks(query, cookies_path=cookies_path)
-            logger.info("Поиск с cookies: найдено %d (user=%s)", len(results), msg.from_user.id)
+            logger.info(
+                "Поиск с cookies: найдено %d (user=%s)", len(results), msg.from_user.id
+            )
             set_searches(msg.from_user.id, {"results": results, "page": 0})
             if not results:
                 logger.info("Ничего не найдено с cookies от %s.", msg.from_user.id)
                 await msg.answer("🙁 Ничего не найдено даже с cookies.")
                 return
             kb = build_results_kb(msg.from_user.id)
-            logger.info("Показываю результаты поиска с cookies (user=%s)", msg.from_user.id)
+            logger.info(
+                "Показываю результаты поиска с cookies (user=%s)", msg.from_user.id
+            )
             await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
         except Exception:
             logger.info("Ошибка поиска с cookies от %s.", msg.from_user.id)
@@ -220,19 +238,31 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     url = url_any
 
     pending_mode = pending.get("mode")
-    if isinstance(pending_mode, str) and pending_mode in {"audio", "video", "video_nosound"}:
+    if isinstance(pending_mode, str) and pending_mode in {
+        "audio",
+        "video",
+        "video_nosound",
+    }:
         mode = pending_mode
     elif pending_mode == "auto":
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
     else:
         mode = decide_effective_mode(get_user_mode(msg.from_user.id), url)
 
-    logger.info("Повтор загрузки с cookies (user=%s, mode=%s, url=%s)", msg.from_user.id, mode, url[:200])
+    logger.info(
+        "Повтор загрузки с cookies (user=%s, mode=%s, url=%s)",
+        msg.from_user.id,
+        mode,
+        url[:200],
+    )
 
     pop_awaiting(msg.from_user.id)
     lock = await begin_user_download(msg.from_user.id)
     if not lock:
-        logger.info("Не удалось начать загрузку с cookies: другая загрузка идёт (user=%s)", msg.from_user.id)
+        logger.info(
+            "Не удалось начать загрузку с cookies: другая загрузка идёт (user=%s)",
+            msg.from_user.id,
+        )
         await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
 

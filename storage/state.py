@@ -2,6 +2,7 @@ import asyncio
 import math
 import os
 import secrets
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,6 +16,8 @@ class StateStore:
         self._settings: Dict[int, Dict[str, str]] = {}
         self._locks: Dict[int, asyncio.Lock] = {}
         self._pending: Dict[str, Dict[str, Any]] = {}
+        self._history: Dict[int, List[Dict[str, Any]]] = {}
+        self._hist_pages: Dict[int, int] = {}
         self._cookies_dir = Path(cookies_dir)
         self._cookies_dir.mkdir(parents=True, exist_ok=True)
 
@@ -51,9 +54,13 @@ class StateStore:
     def pop_searches(self, user_id: int) -> Optional[Dict[str, Any]]:
         return self._searches.pop(user_id, None)
 
-
-    def remember_cookie_request(self, user_id: int, kind: str, url: Optional[str] = None,
-                                mode: Optional[str] = None) -> None:
+    def remember_cookie_request(
+        self,
+        user_id: int,
+        kind: str,
+        url: Optional[str] = None,
+        mode: Optional[str] = None,
+    ) -> None:
         payload: Dict[str, Any] = {"kind": kind, "asked": True}
         if url:
             payload["url"] = url
@@ -74,10 +81,10 @@ class StateStore:
         return str(self._cookies_dir / f"{user_id}_cookies.txt")
 
     def slice_page(
-            self,
-            items: List[Any],
-            page: int,
-            page_size: int = PAGE_SIZE,
+        self,
+        items: List[Any],
+        page: int,
+        page_size: int = PAGE_SIZE,
     ) -> Tuple[List[Any], int]:
         pages = max(1, math.ceil(len(items) / page_size))
         page = max(0, min(page, pages - 1))
@@ -105,6 +112,31 @@ class StateStore:
 
     def pop_pending(self, token: str) -> Optional[Dict[str, Any]]:
         return self._pending.pop(token, None)
+
+    def add_download_history(
+        self, user_id: int, entry: Dict[str, Any], max_items: int = 200
+    ) -> None:
+        if user_id not in self._history:
+            self._history[user_id] = []
+        self._history[user_id].insert(0, {"time": int(time.time()), **entry})
+        if len(self._history[user_id]) > max_items:
+            self._history[user_id] = self._history[user_id][:max_items]
+
+    def get_history(self, user_id: int) -> List[Dict[str, Any]]:
+        return list(self._history.get(user_id, []))
+
+    def clear_history(self, user_id: int) -> None:
+        self._history.pop(user_id, None)
+        self._hist_pages.pop(user_id, None)
+
+    def get_history_page(self, user_id: int) -> int:
+        return self._hist_pages.get(user_id, 0)
+
+    def set_history_page(self, user_id: int, page: int) -> None:
+        self._hist_pages[user_id] = int(page)
+
+    def reset_history_page(self, user_id: int) -> None:
+        self._hist_pages.pop(user_id, None)
 
 
 _store = StateStore()
@@ -166,9 +198,9 @@ async def end_user_download(lock: Optional[asyncio.Lock]) -> None:
 
 
 def slice_page(
-        items: List[Any],
-        page: int,
-        page_size: int = PAGE_SIZE,
+    items: List[Any],
+    page: int,
+    page_size: int = PAGE_SIZE,
 ) -> Tuple[List[Any], int]:
     """Возвращает элементы указанной страницы и общее число страниц.
 
@@ -183,7 +215,9 @@ def slice_page(
     return _store.slice_page(items, page, page_size)
 
 
-def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, mode: Optional[str] = None) -> None:
+def remember_cookie_request(
+    user_id: int, kind: str, url: Optional[str] = None, mode: Optional[str] = None
+) -> None:
     """Сохраняет ожидание cookies.
 
     Args:
@@ -196,8 +230,8 @@ def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, 
 
 
 def remember_search_cookie_request(
-        user_id: int,
-        query: str,
+    user_id: int,
+    query: str,
 ) -> None:
     """Сохраняет ожидание cookies для поиска.
 
@@ -268,3 +302,29 @@ def get_awaiting(user_id: int) -> Optional[Dict[str, Any]]:
 
 def pop_awaiting(user_id: int) -> Optional[Dict[str, Any]]:
     return _store.pop_awaiting(user_id)
+
+
+def add_download_history(
+    user_id: int, entry: Dict[str, Any], max_items: int = 200
+) -> None:
+    _store.add_download_history(user_id, entry, max_items)
+
+
+def get_history(user_id: int) -> List[Dict[str, Any]]:
+    return _store.get_history(user_id)
+
+
+def clear_history(user_id: int) -> None:
+    _store.clear_history(user_id)
+
+
+def get_history_page(user_id: int) -> int:
+    return _store.get_history_page(user_id)
+
+
+def set_history_page(user_id: int, page: int) -> None:
+    _store.set_history_page(user_id, page)
+
+
+def reset_history_page(user_id: int) -> None:
+    _store.reset_history_page(user_id)

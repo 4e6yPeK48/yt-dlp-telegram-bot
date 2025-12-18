@@ -16,12 +16,12 @@ from utils.validators import is_youtube_url
 
 
 async def send_media_files(
-        bot: Bot,
-        chat_id: int,
-        items: List[Tuple[str, Optional[str]]],
-        method: str,
-        media_arg: str,
-        extra: Optional[Dict[str, Any]] = None,
+    bot: Bot,
+    chat_id: int,
+    items: List[Tuple[str, Optional[str]]],
+    method: str,
+    media_arg: str,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Отправляет файлы по одному.
 
@@ -91,7 +91,7 @@ async def send_media_files(
 
 
 async def send_audio_files(
-        bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
 ) -> None:
     """Отправляет аудиофайлы.
 
@@ -104,7 +104,7 @@ async def send_audio_files(
 
 
 async def send_video_files(
-        bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
 ) -> None:
     """Отправляет видеофайлы.
 
@@ -124,7 +124,7 @@ async def send_video_files(
 
 
 async def send_by_mode(
-        bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
+    bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
 ) -> None:
     """Выбирает способ отправки по режиму.
 
@@ -168,20 +168,22 @@ def get_cb_chat_id(cb: CallbackQuery) -> Optional[int]:
     return None
 
 
-
 async def send_info_card(
-        bot: Bot,
-        chat_id: int,
-        url: str,
-        user_id: int,
-        reply_markup: Optional[Any] = None,
+    bot: Bot,
+    chat_id: int,
+    url: str,
+    user_id: int,
+    reply_markup: Optional[Any] = None,
 ) -> None:
-    """Отправляет карточку найденного файла.
-    """
+    """Отправляет карточку найденного файла."""
     caption_fallback = "🎧 Файл найден:\n\nВыберите, что скачать для этой ссылки:"
     try:
-        logger.info("Показываю карточку информации (user=%s, url=%s)", str(user_id), url[:200])
-        info = await extract_basic_info(url, cookies_path=get_user_cookies_path(user_id))
+        logger.info(
+            "Показываю карточку информации (user=%s, url=%s)", str(user_id), url[:200]
+        )
+        info = await extract_basic_info(
+            url, cookies_path=get_user_cookies_path(user_id)
+        )
         title = str(info.get("title") or "Без названия")
         dur_s = info.get("duration")
         dur_str = format_duration_hms(dur_s)

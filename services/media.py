@@ -6,13 +6,7 @@ from typing import List, Optional, Set
 from PIL import Image, ImageOps
 from PIL.Image import Resampling
 
-from config import (
-    AUDIO_EXTS,
-    VIDEO_EXTS,
-    IMAGE_EXTS,
-    THUMB_SIZE,
-    THUMB_MAX_BYTES
-)
+from config import AUDIO_EXTS, VIDEO_EXTS, IMAGE_EXTS, THUMB_SIZE, THUMB_MAX_BYTES
 
 
 def find_files_by_exts(root: str, exts: Set[str]) -> List[str]:
@@ -72,11 +66,11 @@ def find_image_files(root: str) -> List[str]:
 def norm_base(path: str) -> str:
     """Возвращает имя файла без расширения и хвоста после '#'.
 
-        Args:
-            path (str): Путь к файлу.
+    Args:
+        path (str): Путь к файлу.
 
-        Returns:
-            str: Базовое имя.
+    Returns:
+        str: Базовое имя.
     """
     name = os.path.basename(path)
     name = name.split("#", 1)[0]
@@ -87,13 +81,14 @@ def norm_base(path: str) -> str:
 def extract_id_from_base(base: str) -> Optional[str]:
     """Извлекает ID из квадратных скобок.
 
-        Args:
-            base (str): Базовое имя.
+    Args:
+        base (str): Базовое имя.
 
-        Returns:
-            Optional[str]: Извлечённый ID или None.
+    Returns:
+        Optional[str]: Извлечённый ID или None.
     """
     import re
+
     m = re.search(r"\[([0-9A-Za-z_-]{6,})]", base)
     return m.group(1) if m else None
 
@@ -111,9 +106,7 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
     try:
         with Image.open(src_path) as im:
             im = im.convert("RGB")
-            im = ImageOps.fit(
-                im, THUMB_SIZE, method=Resampling.LANCZOS
-            )
+            im = ImageOps.fit(im, THUMB_SIZE, method=Resampling.LANCZOS)
             quality = 90
             min_q = 40
             step = 5

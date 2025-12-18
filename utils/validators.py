@@ -30,10 +30,7 @@ def is_youtube_url(url: str) -> bool:
         host = (urlparse(url).netloc or "").lower()
     except Exception:
         return False
-    return any(
-        h in host
-        for h in ("youtube.", "youtu.be", "music.youtube.")
-    )
+    return any(h in host for h in ("youtube.", "youtu.be", "music.youtube."))
 
 
 def is_audio_platform(url: str) -> bool:

@@ -47,3 +47,4 @@ os.makedirs(COOKIES_DIR, exist_ok=True)
 BTN_MENU: str = "🏠 Меню (/start, /menu)"
 BTN_HELP: str = "❓ Помощь (/help)"
 BTN_SETTINGS: str = "⚙️ Настройки (/settings)"
+BTN_HISTORY: str = "📜 История"

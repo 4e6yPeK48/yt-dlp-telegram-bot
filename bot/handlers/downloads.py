@@ -1,12 +1,14 @@
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import logger
-from services.ytdlp import download_media_to_temp
+from services.ytdlp import download_media_to_temp, extract_basic_info
 from services.telegram import send_by_mode
 from storage.state import (
     end_user_download,
     remember_cookie_request,
+    add_download_history,
 )
+
 
 async def perform_download(
     bot,
@@ -24,9 +26,21 @@ async def perform_download(
     Универсальная функция скачивания и отправки медиа.
     """
     try:
+        try:
+            info = await extract_basic_info(url, cookies_path=cookies_path)
+            title = info.get("title")
+            duration = info.get("duration")
+        except Exception:
+            title = None
+            duration = None
+
         files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         if not files:
-            logger.info("Загрузка завершена: нечего отправлять (user=%s, mode=%s)", str(user_id), mode)
+            logger.info(
+                "Загрузка завершена: нечего отправлять (user=%s, mode=%s)",
+                str(user_id),
+                mode,
+            )
             if on_nothing:
                 await on_nothing()
             else:
@@ -35,9 +49,30 @@ async def perform_download(
                     "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
                 )
             return
-        logger.info("Загрузка завершена: файлов к отправке %d (user=%s, mode=%s)", len(files), str(user_id), mode)
+        logger.info(
+            "Загрузка завершена: файлов к отправке %d (user=%s, mode=%s)",
+            len(files),
+            str(user_id),
+            mode,
+        )
         await send_by_mode(bot, chat_id, mode, files)
-        logger.info("Отправка завершена: отправлено %d файлов (user=%s, mode=%s)", len(files), str(user_id), mode)
+        logger.info(
+            "Отправка завершена: отправлено %d файлов (user=%s, mode=%s)",
+            len(files),
+            str(user_id),
+            mode,
+        )
+
+        try:
+            add_download_history(
+                user_id,
+                {"url": url, "mode": mode, "title": title or "", "duration": duration},
+            )
+        except Exception:
+            logger.warning(
+                "Не удалось записать историю загрузки для user=%s", str(user_id)
+            )
+
     except DownloadError:
         logger.info("Загрузка требует cookies (user=%s, mode=%s)", str(user_id), mode)
         if on_cookies_required:
@@ -53,7 +88,8 @@ async def perform_download(
         if on_error:
             await on_error()
         else:
-            await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
+            await bot.send_message(
+                chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
+            )
     finally:
         await end_user_download(lock)
-

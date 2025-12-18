@@ -27,7 +27,7 @@ from services.media import (
     find_video_files,
     norm_base,
     extract_id_from_base,
-    process_thumbnail
+    process_thumbnail,
 )
 
 try:
@@ -36,7 +36,9 @@ except Exception:
     download_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 
 
-def make_duration_match_filter(max_seconds: int) -> Callable[[Dict[str, Any]], Optional[str]]:
+def make_duration_match_filter(
+    max_seconds: int,
+) -> Callable[[Dict[str, Any]], Optional[str]]:
     """Создаёт фильтр yt-dlp, отвергающий слишком длинные записи.
 
     Args:
@@ -71,7 +73,7 @@ def decide_effective_mode(user_mode: str, url: str) -> str:
 
 
 async def ytdlp_extract(
-        url_or_query: str, ydl_opts: Dict[str, Any], download: bool
+    url_or_query: str, ydl_opts: Dict[str, Any], download: bool
 ) -> Dict[str, Any]:
     """Вызывает yt-dlp (извлечение или скачивание) в отдельном потоке.
 
@@ -84,25 +86,35 @@ async def ytdlp_extract(
         Dict[str, Any]: Результат extract_info.
     """
 
-    logger.debug("ytdlp_extract: starting for %s (download=%s)", url_or_query[:200], download)
+    logger.debug(
+        "ytdlp_extract: starting for %s (download=%s)", url_or_query[:200], download
+    )
 
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url_or_query, download=download)
 
     try:
-        result = await asyncio.wait_for(asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT)
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT
+        )
         logger.debug("ytdlp_extract: finished for %s", url_or_query[:200])
         return result
     except asyncio.TimeoutError:
-        logger.error("ytdlp_extract: timeout after %d seconds for %s", YTDLP_THREAD_TIMEOUT, url_or_query[:200])
+        logger.error(
+            "ytdlp_extract: timeout after %d seconds for %s",
+            YTDLP_THREAD_TIMEOUT,
+            url_or_query[:200],
+        )
         raise
     except Exception as e:
         logger.exception("ytdlp_extract: exception for %s: %s", url_or_query[:200], e)
         raise
 
 
-async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
+async def search_tracks(
+    query: str, cookies_path: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """Ищет треки на YouTube и фильтрует по длительности.
 
     Args:
@@ -121,7 +133,9 @@ async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
 
-    info = await ytdlp_extract(f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False)
+    info = await ytdlp_extract(
+        f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False
+    )
     entries = info.get("entries") or []
     results: List[Dict[str, Any]] = []
     for e in entries:
@@ -139,7 +153,9 @@ async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[
     return results
 
 
-async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Dict[str, Any]:
+async def extract_basic_info(
+    url: str, cookies_path: Optional[str] = None
+) -> Dict[str, Any]:
     """Извлекает базовую информацию без скачивания.
 
     Args:
@@ -173,6 +189,7 @@ async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Di
             return t
         ts = it.get("thumbnails")
         if isinstance(ts, list) and ts:
+
             def key_fn(x: Dict[str, Any]) -> Tuple[int, int, int]:
                 pref = int(x.get("preference") or 0)
                 w = int(x.get("width") or 0)
@@ -188,22 +205,28 @@ async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Di
         return None
 
     title = (
-            (item.get("title") if isinstance(item, dict) else None)
-            or (item.get("fulltitle") if isinstance(item, dict) else None)
-            or (item.get("id") if isinstance(item, dict) else None)
-            or "Без названия"
+        (item.get("title") if isinstance(item, dict) else None)
+        or (item.get("fulltitle") if isinstance(item, dict) else None)
+        or (item.get("id") if isinstance(item, dict) else None)
+        or "Без названия"
     )
-    duration = (item.get("duration") if isinstance(item, dict) else None)
+    duration = item.get("duration") if isinstance(item, dict) else None
     channel = ""
     if isinstance(item, dict):
         channel = item.get("uploader") or item.get("channel") or ""
     thumbnail = _pick_thumb(item if isinstance(item, dict) else {})
 
-    return {"title": title, "duration": duration, "channel": channel, "thumbnail": thumbnail}
+    return {
+        "title": title,
+        "duration": duration,
+        "channel": channel,
+        "thumbnail": thumbnail,
+    }
 
 
-async def download_media_to_temp(url: str, mode: str, cookies_path: Optional[str] = None) -> List[
-    Tuple[str, Optional[str]]]:
+async def download_media_to_temp(
+    url: str, mode: str, cookies_path: Optional[str] = None
+) -> List[Tuple[str, Optional[str]]]:
     """Скачивает медиа и подготавливает миниатюры во временные директории.
 
     Args:

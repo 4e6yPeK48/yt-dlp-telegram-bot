@@ -83,7 +83,7 @@ def parse_main_button_intent(text: str) -> Optional[str]:
         text (str): Текст кнопки.
 
     Returns:
-        Optional[str]: Намерение ('menu', 'help', 'settings') или None.
+        Optional[str]: Намерение ('menu', 'help', 'settings', 'history) или None.
     """
     t = (text or "").strip()
     if not t:
@@ -96,6 +96,8 @@ def parse_main_button_intent(text: str) -> Optional[str]:
         return "help"
     if re.search(r"/settings\b", low):
         return "settings"
+    if re.search(r"/history\b", low):
+        return "history"
 
     cleaned = re.sub(r"[^\w\sА-Яа-яёЁ-]", " ", low)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -106,5 +108,7 @@ def parse_main_button_intent(text: str) -> Optional[str]:
         return "help"
     if re.search(r"\bнастрой", cleaned):
         return "settings"
+    if re.search(r"\bистор", cleaned):
+        return "history"
 
     return None
