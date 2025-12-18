@@ -1,6 +1,6 @@
 import re
 from typing import Any, Optional
-from ..config import CAPTION_MAX_LEN
+from config import CAPTION_MAX_LEN
 
 
 def sanitize_query(text: str, max_len: int = 256) -> str:

@@ -1,10 +1,9 @@
-from contextlib import suppress
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
-from ...bot.dispatcher import logger
-from ...services.ytdlp import download_media_to_temp
-from ...services.telegram import send_by_mode
-from ...storage.state import (
+from bot.dispatcher import logger
+from services.ytdlp import download_media_to_temp
+from services.telegram import send_by_mode
+from storage.state import (
     end_user_download,
     remember_cookie_request,
 )

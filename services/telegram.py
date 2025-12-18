@@ -7,12 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from aiogram import Bot
 from aiogram.types import FSInputFile, CallbackQuery, Message
 
-from .ytdlp import extract_basic_info
-from ..bot.dispatcher import logger
-from ..config import TG_MAX_UPLOAD_BYTES
-from ..storage.state import get_user_cookies_path
-from ..utils.text import make_caption, format_duration_hms, make_multiline_caption
-from ..utils.validators import is_youtube_url
+from services.ytdlp import extract_basic_info
+from bot.dispatcher import logger
+from config import TG_MAX_UPLOAD_BYTES
+from storage.state import get_user_cookies_path
+from utils.text import make_caption, format_duration_hms, make_multiline_caption
+from utils.validators import is_youtube_url
 
 
 async def send_media_files(
@@ -74,11 +74,12 @@ async def send_media_files(
                 kwargs.update(extra)
             await getattr(bot, method)(**kwargs)
         finally:
-            with suppress(Exception):
-                os.remove(media_path)
+            if media_path:
+                with suppress(Exception):
+                    await asyncio.to_thread(os.remove, media_path)
             if thumb_path:
                 with suppress(Exception):
-                    os.remove(thumb_path)
+                    await asyncio.to_thread(os.remove, thumb_path)
             await asyncio.sleep(0.3)
 
     parents = {os.path.dirname(p) for p, _ in items}
@@ -86,7 +87,7 @@ async def send_media_files(
         base = os.path.basename(d)
         if base.startswith("out_"):
             with suppress(Exception):
-                shutil.rmtree(d, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, d, True)
 
 
 async def send_audio_files(

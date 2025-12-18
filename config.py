@@ -17,6 +17,7 @@ PAGE_SIZE: int = 5
 CONCURRENT_DOWNLOADS: int = 2
 MAX_PLAYLIST_ITEMS: int = 10
 DURATION_LIMIT_SEC: int = 30 * 60
+YTDLP_THREAD_TIMEOUT: int = 5 * 60  # seconds
 
 # Query limits
 MAX_QUERY_LEN: int = 120

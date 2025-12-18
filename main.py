@@ -10,6 +10,7 @@ from config import (
     BOT_TOKEN,
 )
 from utils.logging import setup_logging
+from bot.handlers import commands, messages, callbacks, downloads  # noqa: F401
 
 
 async def main() -> None:

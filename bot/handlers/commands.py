@@ -1,9 +1,9 @@
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 
-from ..keyboards import build_main_reply_kb, build_settings_kb
-from ...bot.dispatcher import router, logger
-from ...storage.state import USER_SEARCHES, AWAITING_COOKIES
+from bot.keyboards import build_main_reply_kb, build_settings_kb
+from bot.dispatcher import router, logger
+from storage.state import pop_searches, pop_awaiting
 
 
 @router.message(CommandStart())
@@ -15,8 +15,8 @@ async def cmd_start(msg: Message) -> None:
     """
     uid = msg.from_user.id if msg.from_user is not None else None
     if uid is not None:
-        USER_SEARCHES.pop(uid, None)
-        AWAITING_COOKIES.pop(uid, None)
+        pop_searches(uid)
+        pop_awaiting(uid)
     logger.info("Команда /start от пользователя %s", str(uid))
     await msg.answer(
         "✨ Отправьте ссылку — скачаю по вашим настройкам.\n"

@@ -10,17 +10,18 @@ from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 
-from ..config import (
+from config import (
     MAX_PLAYLIST_ITEMS,
     MAX_RESULTS,
     DURATION_LIMIT_SEC,
     CONCURRENT_DOWNLOADS,
+    YTDLP_THREAD_TIMEOUT,
 )
-from ..bot.dispatcher import logger
+from bot.dispatcher import logger
 
-from ..utils.validators import is_audio_platform
+from utils.validators import is_audio_platform
 
-from .media import (
+from services.media import (
     find_audio_files,
     find_image_files,
     find_video_files,
@@ -30,7 +31,7 @@ from .media import (
 )
 
 try:
-    from ..bot.dispatcher import download_sem  # type: ignore
+    from bot.dispatcher import download_sem  # type: ignore
 except Exception:
     download_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 
@@ -83,11 +84,22 @@ async def ytdlp_extract(
         Dict[str, Any]: Результат extract_info.
     """
 
+    logger.debug("ytdlp_extract: starting for %s (download=%s)", url_or_query[:200], download)
+
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url_or_query, download=download)
 
-    return await asyncio.to_thread(_run)
+    try:
+        result = await asyncio.wait_for(asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT)
+        logger.debug("ytdlp_extract: finished for %s", url_or_query[:200])
+        return result
+    except asyncio.TimeoutError:
+        logger.error("ytdlp_extract: timeout after %d seconds for %s", YTDLP_THREAD_TIMEOUT, url_or_query[:200])
+        raise
+    except Exception as e:
+        logger.exception("ytdlp_extract: exception for %s: %s", url_or_query[:200], e)
+        raise
 
 
 async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -260,62 +272,75 @@ async def download_media_to_temp(url: str, mode: str, cookies_path: Optional[str
         except Exception as e:
             raise e
 
-    if mode == "audio":
-        media_files = find_audio_files(tmpdir)
-    else:
-        media_files = find_video_files(tmpdir)
-    image_files = find_image_files(tmpdir)
-    logger.info(
-        "Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files)
-    )
-    if not media_files:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-        return []
+    def _sync_postprocess(tmpdir_: str, mode_: str) -> List[Tuple[str, Optional[str]]]:
+        from services.media import (
+            find_audio_files,
+            find_image_files,
+            find_video_files,
+            norm_base,
+            extract_id_from_base,
+            process_thumbnail,
+        )
 
-    stable_dir = tempfile.mkdtemp(prefix="out_")
+        if mode_ == "audio":
+            media_files = find_audio_files(tmpdir_)
+        else:
+            media_files = find_video_files(tmpdir_)
+        image_files = find_image_files(tmpdir_)
+        logger.info(
+            "Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files)
+        )
+        if not media_files:
+            shutil.rmtree(tmpdir_, ignore_errors=True)
+            return []
 
-    images_by_base: Dict[str, List[str]] = {}
-    for img in image_files:
-        clean_base = norm_base(img)
-        images_by_base.setdefault(clean_base, []).append(img)
+        stable_dir = tempfile.mkdtemp(prefix="out_")
 
-    items: List[Tuple[str, Optional[str]]] = []
-    for m in media_files:
-        m_base = norm_base(m)
-        m_dst = os.path.join(stable_dir, os.path.basename(m))
-        with suppress(Exception):
-            shutil.move(m, m_dst)
+        images_by_base: Dict[str, List[str]] = {}
+        for img in image_files:
+            clean_base = norm_base(img)
+            images_by_base.setdefault(clean_base, []).append(img)
 
-        possible_imgs = list(images_by_base.get(m_base, []))
-        if not possible_imgs:
-            vid = extract_id_from_base(m_base)
-            if vid:
-                needle = f"[{vid}]"
-                for img in image_files:
-                    name_wo_hash = os.path.basename(img).split("#", 1)[0]
-                    if needle in name_wo_hash:
-                        possible_imgs.append(img)
-
-        t_src: Optional[str] = None
-        if possible_imgs:
+        items_: List[Tuple[str, Optional[str]]] = []
+        for m in media_files:
+            m_base = norm_base(m)
+            m_dst = os.path.join(stable_dir, os.path.basename(m))
             with suppress(Exception):
-                possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
-            t_src = possible_imgs[0]
+                shutil.move(m, m_dst)
 
-        t_dst: Optional[str] = None
-        if t_src and os.path.exists(t_src):
-            moved = os.path.join(stable_dir, os.path.basename(t_src))
-            with suppress(Exception):
-                shutil.move(t_src, moved)
-            logger.info("Обрабатываю обложку: %s", moved)
-            processed = process_thumbnail(moved, stable_dir)
-            if os.path.exists(moved) and (not processed or processed != moved):
+            possible_imgs = list(images_by_base.get(m_base, []))
+            if not possible_imgs:
+                vid = extract_id_from_base(m_base)
+                if vid:
+                    needle = f"[{vid}]"
+                    for img in image_files:
+                        name_wo_hash = os.path.basename(img).split("#", 1)[0]
+                        if needle in name_wo_hash:
+                            possible_imgs.append(img)
+
+            t_src: Optional[str] = None
+            if possible_imgs:
                 with suppress(Exception):
-                    os.remove(moved)
-            if processed and os.path.exists(processed):
-                t_dst = processed
+                    possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
+                t_src = possible_imgs[0]
 
-        items.append((m_dst, t_dst))
+            t_dst: Optional[str] = None
+            if t_src and os.path.exists(t_src):
+                moved = os.path.join(stable_dir, os.path.basename(t_src))
+                with suppress(Exception):
+                    shutil.move(t_src, moved)
+                logger.info("Обрабатываю обложку: %s", moved)
+                processed = process_thumbnail(moved, stable_dir)
+                if os.path.exists(moved) and (not processed or processed != moved):
+                    with suppress(Exception):
+                        os.remove(moved)
+                if processed and os.path.exists(processed):
+                    t_dst = processed
 
-    shutil.rmtree(tmpdir, ignore_errors=True)
+            items_.append((m_dst, t_dst))
+
+        shutil.rmtree(tmpdir_, ignore_errors=True)
+        return items_
+
+    items = await asyncio.to_thread(_sync_postprocess, tmpdir, mode)
     return items
