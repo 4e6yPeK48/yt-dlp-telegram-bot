@@ -9,29 +9,30 @@ from aiogram.types import (
 from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
-from ...bot.dispatcher import router, logger
-from ...bot.keyboards import (
+from bot.dispatcher import router, logger
+from bot.keyboards import (
     build_settings_kb,
     build_download_choice_kb,
     build_results_kb
 )
-from ...config import (
+from config import (
     PAGE_SIZE,
 )
-from ...services.telegram import (
+from services.telegram import (
     send_info_card,
     get_cb_chat_id,
     try_cb_answer,
     send_by_mode
 )
-from ...services.ytdlp import (
+from services.ytdlp import (
     decide_effective_mode,
     download_media_to_temp,
 )
-from ...storage.state import (
-    USER_SEARCHES,
-    AWAITING_COOKIES,
-    PENDING_DOWNLOADS,
+from storage.state import (
+    get_searches,
+    get_awaiting,
+    get_pending,
+    pop_pending,
     get_user_mode,
     set_user_mode,
     begin_user_download,
@@ -39,9 +40,12 @@ from ...storage.state import (
     slice_page,
     remember_cookie_request,
     get_user_cookies_path,
-    save_pending_url
+    save_pending_url,
+    pop_searches,
+    set_searches,
+    pop_awaiting,
 )
-from downloads import perform_download
+from bot.handlers.downloads import perform_download
 
 @router.callback_query(F.data == "settings:open")
 async def cb_settings_open(cb: CallbackQuery) -> None:
@@ -52,6 +56,7 @@ async def cb_settings_open(cb: CallbackQuery) -> None:
     """
     await try_cb_answer(cb)
     if cb.from_user is None:
+        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
     if cb.message is not None and isinstance(cb.message, Message):
         await cb.message.answer(
@@ -88,10 +93,10 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
         return
     mode = data.split(":", 1)[1]
     if mode not in {"auto", "audio", "video", "video_nosound"}:
-        await cb.answer("⚠️ Неизвестный режим.")
+        await try_cb_answer(cb, "⚠️ Неизвестный режим.")
         return
     if cb.from_user is None:
-        await cb.answer("⚠️ Не удалось определить пользователя.")
+        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
     set_user_mode(cb.from_user.id, mode)
     logger.info("Режим пользователя %s изменён на %s", cb.from_user.id, mode)
@@ -99,7 +104,7 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
             await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await cb.answer("✅ Режим обновлён.")
+    await try_cb_answer(cb, "✅ Режим обновлён.")
 
 
 @router.callback_query(F.data.startswith("dl:"))
@@ -119,7 +124,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     if mode_sel not in {"audio", "video", "auto"}:
         await try_cb_answer(cb, "⚠️ Неизвестный режим.")
         return
-    pend = PENDING_DOWNLOADS.get(token)
+    pend = get_pending(token)
     if not pend:
         await try_cb_answer(cb, "ℹ️ Ссылка устарела. Отправьте её снова.")
         return
@@ -130,7 +135,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         return
 
     with suppress(Exception):
-        PENDING_DOWNLOADS.pop(token, None)
+        pop_pending(token)
 
     if mode_sel == "auto":
         mode = decide_effective_mode(get_user_mode(user_id), url)
@@ -151,11 +156,11 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     chat_id = get_cb_chat_id(cb)
     if chat_id is None:
         await end_user_download(lock)
-        await try_cb_answer(cb)
+        await try_cb_answer(cb, "⚠️ Не удалось определить чат.")
         return
 
     await try_cb_answer(cb)
-    await bot.send_message(chat_id, "⏳ Скачиваю, подождите...")
+    await bot.send_message(chat_id, "⏳ Скачиваю, подождите")
 
     cookies_path = get_user_cookies_path(user_id)
 
@@ -207,8 +212,8 @@ async def handle_cancel(cb: CallbackQuery) -> None:
         cb (CallbackQuery): Запрос.
     """
     if cb.from_user is not None:
-        USER_SEARCHES.pop(cb.from_user.id, None)
-        AWAITING_COOKIES.pop(cb.from_user.id, None)
+        pop_searches(cb.from_user.id)
+        pop_awaiting(cb.from_user.id)
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
             await cb.message.edit_reply_markup(reply_markup=None)
@@ -223,9 +228,9 @@ async def handle_next_page(cb: CallbackQuery) -> None:
         cb (CallbackQuery): Запрос.
     """
     if cb.from_user is None:
-        await try_cb_answer(cb, "ℹ️ Нет пользователя.")
+        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
-    state = USER_SEARCHES.get(cb.from_user.id)
+    state = get_searches(cb.from_user.id)
     if not state:
         await try_cb_answer(cb, "ℹ️ Нет активного списка.")
         return
@@ -233,6 +238,7 @@ async def handle_next_page(cb: CallbackQuery) -> None:
     page = state.get("page", 0)
     _, pages = slice_page(results, page, PAGE_SIZE)
     state["page"] = (page + 1) % pages
+    set_searches(cb.from_user.id, state)
     kb = build_results_kb(cb.from_user.id)
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
@@ -248,9 +254,9 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
         cb (CallbackQuery): Запрос.
     """
     if cb.from_user is None:
-        await try_cb_answer(cb, "ℹ️ Нет пользователя.")
+        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
-    state = USER_SEARCHES.get(cb.from_user.id)
+    state = get_searches(cb.from_user.id)
     if not state:
         await try_cb_answer(cb, "ℹ️ Нет активного списка.")
         return
@@ -258,6 +264,7 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
     page = state.get("page", 0)
     _, pages = slice_page(results, page, PAGE_SIZE)
     state["page"] = (page - 1 + pages) % pages
+    set_searches(cb.from_user.id, state)
     kb = build_results_kb(cb.from_user.id)
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
@@ -279,7 +286,7 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         if cb.from_user is None:
             await try_cb_answer(cb, "ℹ️ Не удалось определить пользователя.")
             return
-        state = USER_SEARCHES.get(cb.from_user.id)
+        state = get_searches(cb.from_user.id)
         if not state:
             await try_cb_answer(cb, "ℹ️ Список результатов устарел.")
             return
@@ -300,7 +307,7 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         await try_cb_answer(cb)
 
         with suppress(Exception):
-            USER_SEARCHES.pop(cb.from_user.id, None)
+            pop_searches(cb.from_user.id)
         if cb.message is not None and isinstance(cb.message, Message):
             with suppress(Exception):
                 await cb.message.delete()

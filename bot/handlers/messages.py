@@ -8,42 +8,42 @@ from aiogram.types import (
 from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
-from ...bot.dispatcher import router, logger
-from ...bot.handlers.commands import (
+from bot.dispatcher import router, logger
+from bot.handlers.commands import (
     cmd_start,
     cmd_help,
     cmd_settings
 )
-from ...bot.keyboards import (
+from bot.keyboards import (
     build_download_choice_kb,
     build_results_kb
 )
-from ...config import (
+from config import (
     COOKIES_MAX_BYTES,
     ALLOWED_COOKIES_EXTS,
 )
-from ...services.telegram import (
+from services.telegram import (
     send_info_card,
-    send_by_mode
 )
-from ...services.ytdlp import (
+from services.ytdlp import (
     decide_effective_mode,
     search_tracks,
-    download_media_to_temp,
 )
-from ...storage.state import (
-    USER_SEARCHES,
-    AWAITING_COOKIES,
+from storage.state import (
+    get_searches,
+    set_searches,
+    pop_searches,
+    get_awaiting,
+    pop_awaiting,
     get_user_mode,
     begin_user_download,
-    end_user_download,
     remember_search_cookie_request,
     get_user_cookies_path,
-    save_pending_url
+    save_pending_url,
 )
-from ...utils.text import sanitize_query, parse_main_button_intent
-from ...utils.validators import is_url
-from downloads import perform_download
+from utils.text import sanitize_query, parse_main_button_intent
+from utils.validators import is_url
+from bot.handlers.downloads import perform_download
 
 
 @router.message(F.text)
@@ -94,13 +94,13 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         await msg.answer("⚠️ Некорректный запрос.")
         return
     logger.info("Начинаю поиск (user=%s, query=%s)", str(uid), query[:120])
-    await msg.answer("🔎 Ищу...")
+    await msg.answer("🔎 Ищу")
     try:
         cookies_path = get_user_cookies_path(uid) if uid is not None else None
         results = await search_tracks(query, cookies_path=cookies_path)
         logger.info("Поиск завершён: найдено %d (user=%s)", len(results), str(uid))
         if uid is not None:
-            USER_SEARCHES[uid] = {"results": results, "page": 0}
+            set_searches(uid, {"results": results, "page": 0})
         if not results:
             logger.info("Ничего не найдено (user=%s)", str(uid))
             await msg.answer("🙁 Ничего не найдено (или превышен лимит длительности).")
@@ -129,7 +129,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         logger.info("Получен файл, но не удалось определить пользователя.")
         await msg.answer("📄 Файл получен, но не удалось определить пользователя.")
         return
-    pending = AWAITING_COOKIES.get(msg.from_user.id)
+    pending = get_awaiting(msg.from_user.id)
     if not pending:
         logger.info("Получен файл от %s, но cookies не требуются.", msg.from_user.id)
         await msg.answer("📄 Файл получен, но сейчас cookies не требуются.")
@@ -184,7 +184,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             return
 
     logger.info("Повтор операции с cookies для %s.", msg.from_user.id)
-    await msg.answer("🍪 Cookies получены. Пробую снова...")
+    await msg.answer("🍪 Cookies получены. Пробую снова")
 
     pending_kind = (pending.get("kind") or "").lower()
     if pending_kind == "search":
@@ -195,11 +195,11 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             return
         query = query_any.strip()
         logger.info("Повтор поиска с cookies (user=%s, query=%s)", msg.from_user.id, query[:120])
-        AWAITING_COOKIES.pop(msg.from_user.id, None)
+        pop_awaiting(msg.from_user.id)
         try:
             results = await search_tracks(query, cookies_path=cookies_path)
             logger.info("Поиск с cookies: найдено %d (user=%s)", len(results), msg.from_user.id)
-            USER_SEARCHES[msg.from_user.id] = {"results": results, "page": 0}
+            set_searches(msg.from_user.id, {"results": results, "page": 0})
             if not results:
                 logger.info("Ничего не найдено с cookies от %s.", msg.from_user.id)
                 await msg.answer("🙁 Ничего не найдено даже с cookies.")
@@ -229,7 +229,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
 
     logger.info("Повтор загрузки с cookies (user=%s, mode=%s, url=%s)", msg.from_user.id, mode, url[:200])
 
-    AWAITING_COOKIES.pop(msg.from_user.id, None)
+    pop_awaiting(msg.from_user.id)
     lock = await begin_user_download(msg.from_user.id)
     if not lock:
         logger.info("Не удалось начать загрузку с cookies: другая загрузка идёт (user=%s)", msg.from_user.id)

@@ -2,16 +2,112 @@ import asyncio
 import math
 import os
 import secrets
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..config import COOKIES_DIR, PAGE_SIZE
+from config import COOKIES_DIR, PAGE_SIZE
 
 
-USER_SEARCHES: Dict[int, Dict[str, Any]] = {}
-AWAITING_COOKIES: Dict[int, Dict[str, Any]] = {}
-USER_SETTINGS: Dict[int, Dict[str, str]] = {}
-USER_LOCKS: Dict[int, asyncio.Lock] = {}
-PENDING_DOWNLOADS: Dict[str, Dict[str, Any]] = {}
+class StateStore:
+    def __init__(self, cookies_dir: str = COOKIES_DIR) -> None:
+        self._searches: Dict[int, Dict[str, Any]] = {}
+        self._awaiting: Dict[int, Dict[str, Any]] = {}
+        self._settings: Dict[int, Dict[str, str]] = {}
+        self._locks: Dict[int, asyncio.Lock] = {}
+        self._pending: Dict[str, Dict[str, Any]] = {}
+        self._cookies_dir = Path(cookies_dir)
+        self._cookies_dir.mkdir(parents=True, exist_ok=True)
+
+    def get_user_mode(self, user_id: int) -> str:
+        return (self._settings.get(user_id) or {}).get("mode", "auto")
+
+    def set_user_mode(self, user_id: int, mode: str) -> None:
+        if user_id not in self._settings:
+            self._settings[user_id] = {}
+        self._settings[user_id]["mode"] = mode
+
+    def _get_lock(self, user_id: int) -> asyncio.Lock:
+        if user_id not in self._locks:
+            self._locks[user_id] = asyncio.Lock()
+        return self._locks[user_id]
+
+    async def begin_user_download(self, user_id: int) -> Optional[asyncio.Lock]:
+        lock = self._get_lock(user_id)
+        if lock.locked():
+            return None
+        await lock.acquire()
+        return lock
+
+    async def end_user_download(self, lock: Optional[asyncio.Lock]) -> None:
+        if lock and lock.locked():
+            lock.release()
+
+    def get_searches(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return self._searches.get(user_id)
+
+    def set_searches(self, user_id: int, payload: Dict[str, Any]) -> None:
+        self._searches[user_id] = payload
+
+    def pop_searches(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return self._searches.pop(user_id, None)
+
+
+    def remember_cookie_request(self, user_id: int, kind: str, url: Optional[str] = None,
+                                mode: Optional[str] = None) -> None:
+        payload: Dict[str, Any] = {"kind": kind, "asked": True}
+        if url:
+            payload["url"] = url
+        if mode:
+            payload["mode"] = mode
+        self._awaiting[user_id] = payload
+
+    def remember_search_cookie_request(self, user_id: int, query: str) -> None:
+        self._awaiting[user_id] = {"kind": "search", "query": query, "asked": True}
+
+    def get_awaiting(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return self._awaiting.get(user_id)
+
+    def pop_awaiting(self, user_id: int) -> Optional[Dict[str, Any]]:
+        return self._awaiting.pop(user_id, None)
+
+    def get_user_cookies_path(self, user_id: int) -> str:
+        return str(self._cookies_dir / f"{user_id}_cookies.txt")
+
+    def slice_page(
+            self,
+            items: List[Any],
+            page: int,
+            page_size: int = PAGE_SIZE,
+    ) -> Tuple[List[Any], int]:
+        pages = max(1, math.ceil(len(items) / page_size))
+        page = max(0, min(page, pages - 1))
+        start = page * page_size
+        end = start + page_size
+        return items[start:end], pages
+
+    def make_dl_token(self) -> str:
+        for _ in range(10):
+            t = secrets.token_urlsafe(12)
+            if t not in self._pending:
+                return t
+        return secrets.token_hex(12)
+
+    def save_pending_url(self, user_id: int, url: str) -> str:
+        token = self.make_dl_token()
+        self._pending[token] = {
+            "user_id": user_id,
+            "url": url,
+        }
+        return token
+
+    def get_pending(self, token: str) -> Optional[Dict[str, Any]]:
+        return self._pending.get(token)
+
+    def pop_pending(self, token: str) -> Optional[Dict[str, Any]]:
+        return self._pending.pop(token, None)
+
+
+_store = StateStore()
 
 
 def get_user_mode(user_id: int) -> str:
@@ -23,7 +119,7 @@ def get_user_mode(user_id: int) -> str:
     Returns:
         str: Один из: 'auto', 'audio', 'video', 'video_nosound'.
     """
-    return (USER_SETTINGS.get(user_id) or {}).get("mode", "auto")
+    return _store.get_user_mode(user_id)
 
 
 def set_user_mode(user_id: int, mode: str) -> None:
@@ -33,9 +129,7 @@ def set_user_mode(user_id: int, mode: str) -> None:
         user_id (int): Идентификатор пользователя.
         mode (str): Режим ('auto'|'audio'|'video'|'video_nosound').
     """
-    if user_id not in USER_SETTINGS:
-        USER_SETTINGS[user_id] = {}
-    USER_SETTINGS[user_id]["mode"] = mode
+    _store.set_user_mode(user_id, mode)
 
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
@@ -47,9 +141,7 @@ def get_user_lock(user_id: int) -> asyncio.Lock:
     Returns:
         asyncio.Lock: Lock пользователя.
     """
-    if user_id not in USER_LOCKS:
-        USER_LOCKS[user_id] = asyncio.Lock()
-    return USER_LOCKS[user_id]
+    return _store._get_lock(user_id)  # noqa
 
 
 async def begin_user_download(user_id: int) -> Optional[asyncio.Lock]:
@@ -61,10 +153,7 @@ async def begin_user_download(user_id: int) -> Optional[asyncio.Lock]:
     Returns:
         Optional[asyncio.Lock]: Захваченный Lock или None если занят.
     """
-    lock = get_user_lock(user_id)
-    if lock.locked():
-        return None
-    return lock
+    return await _store.begin_user_download(user_id)
 
 
 async def end_user_download(lock: Optional[asyncio.Lock]) -> None:
@@ -73,14 +162,13 @@ async def end_user_download(lock: Optional[asyncio.Lock]) -> None:
     Args:
         lock (Optional[asyncio.Lock]): Объект блокировки.
     """
-    if lock is not None and lock.locked():
-        lock.release()
+    await _store.end_user_download(lock)
 
 
 def slice_page(
-    items: List[Any],
-    page: int,
-    page_size: int = PAGE_SIZE,
+        items: List[Any],
+        page: int,
+        page_size: int = PAGE_SIZE,
 ) -> Tuple[List[Any], int]:
     """Возвращает элементы указанной страницы и общее число страниц.
 
@@ -92,11 +180,7 @@ def slice_page(
     Returns:
         Tuple[List[Any], int]: Элементы текущей страницы и всего страниц.
     """
-    pages = max(1, math.ceil(len(items) / page_size))
-    page = max(0, min(page, pages - 1))
-    start = page * page_size
-    end = start + page_size
-    return items[start:end], pages
+    return _store.slice_page(items, page, page_size)
 
 
 def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, mode: Optional[str] = None) -> None:
@@ -108,17 +192,12 @@ def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, 
         url (Optional[str]): URL для повтора.
         mode (Optional[str]): Режим ('audio'|'video'|'video_nosound'|'auto').
     """
-    payload: Dict[str, Any] = {"kind": kind, "asked": True}
-    if url:
-        payload["url"] = url
-    if mode:
-        payload["mode"] = mode
-    AWAITING_COOKIES[user_id] = payload
+    _store.remember_cookie_request(user_id, kind, url, mode)
 
 
 def remember_search_cookie_request(
-    user_id: int,
-    query: str,
+        user_id: int,
+        query: str,
 ) -> None:
     """Сохраняет ожидание cookies для поиска.
 
@@ -126,7 +205,7 @@ def remember_search_cookie_request(
         user_id (int): Пользователь.
         query (str): Поисковый запрос.
     """
-    AWAITING_COOKIES[user_id] = {"kind": "search", "query": query, "asked": True}
+    _store.remember_search_cookie_request(user_id, query)
 
 
 def get_user_cookies_path(user_id: int) -> str:
@@ -138,7 +217,7 @@ def get_user_cookies_path(user_id: int) -> str:
     Returns:
         str: Путь к cookies.txt.
     """
-    return os.path.join(COOKIES_DIR, f"{user_id}_cookies.txt")
+    return _store.get_user_cookies_path(user_id)
 
 
 def make_dl_token() -> str:
@@ -147,12 +226,7 @@ def make_dl_token() -> str:
     Returns:
         str: Токен (10 символов [A-Za-z0-9]).
     """
-    t = ""
-    for _ in range(5):
-        t = secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:10]
-        if t not in PENDING_DOWNLOADS:
-            break
-    return t
+    return _store.make_dl_token()
 
 
 def save_pending_url(user_id: int, url: str) -> str:
@@ -165,9 +239,32 @@ def save_pending_url(user_id: int, url: str) -> str:
     Returns:
         str: Токен сохранения.
     """
-    token = make_dl_token()
-    PENDING_DOWNLOADS[token] = {
-        "user_id": user_id,
-        "url": url,
-    }
-    return token
+    return _store.save_pending_url(user_id, url)
+
+
+def get_pending(token: str) -> Optional[Dict[str, Any]]:
+    return _store.get_pending(token)
+
+
+def pop_pending(token: str) -> Optional[Dict[str, Any]]:
+    return _store.pop_pending(token)
+
+
+def get_searches(user_id: int) -> Optional[Dict[str, Any]]:
+    return _store.get_searches(user_id)
+
+
+def set_searches(user_id: int, payload: Dict[str, Any]) -> None:
+    _store.set_searches(user_id, payload)
+
+
+def pop_searches(user_id: int) -> Optional[Dict[str, Any]]:
+    return _store.pop_searches(user_id)
+
+
+def get_awaiting(user_id: int) -> Optional[Dict[str, Any]]:
+    return _store.get_awaiting(user_id)
+
+
+def pop_awaiting(user_id: int) -> Optional[Dict[str, Any]]:
+    return _store.pop_awaiting(user_id)

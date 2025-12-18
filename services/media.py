@@ -6,7 +6,7 @@ from typing import List, Optional, Set
 from PIL import Image, ImageOps
 from PIL.Image import Resampling
 
-from ..config import (
+from config import (
     AUDIO_EXTS,
     VIDEO_EXTS,
     IMAGE_EXTS,

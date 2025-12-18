@@ -3,7 +3,7 @@ import logging
 
 from aiogram import Router, Dispatcher
 
-from ..config import CONCURRENT_DOWNLOADS
+from config import CONCURRENT_DOWNLOADS
 
 router: Router = Router()
 dp: Dispatcher = Dispatcher()

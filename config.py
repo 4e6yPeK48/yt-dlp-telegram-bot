@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Bot token from environment
-BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
+# BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
+BOT_TOKEN: Optional[str] = "8524336951:AAFG9KLCfuSRK6igDPbP2RLnkikYMKlXxyk"
 
 # Search and pagination
 MAX_RESULTS: int = 25
@@ -16,6 +17,7 @@ PAGE_SIZE: int = 5
 CONCURRENT_DOWNLOADS: int = 2
 MAX_PLAYLIST_ITEMS: int = 10
 DURATION_LIMIT_SEC: int = 30 * 60
+YTDLP_THREAD_TIMEOUT: int = 5 * 60  # seconds
 
 # Query limits
 MAX_QUERY_LEN: int = 120

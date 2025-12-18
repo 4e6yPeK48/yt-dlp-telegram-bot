@@ -3,8 +3,8 @@ from typing import Dict, List, Any
 from aiogram.types import InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from ..config import PAGE_SIZE, BTN_MENU, BTN_HELP, BTN_SETTINGS
-from ..storage.state import slice_page, USER_SEARCHES, get_user_mode
+from config import PAGE_SIZE, BTN_MENU, BTN_HELP, BTN_SETTINGS
+from storage.state import slice_page, get_searches, get_user_mode
 
 
 def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
@@ -16,7 +16,7 @@ def build_results_kb(user_id: int) -> InlineKeyboardBuilder:
     Returns:
         InlineKeyboardBuilder: Сконструированный билдер.
     """
-    state = USER_SEARCHES.get(user_id) or {}
+    state = get_searches(user_id) or {}
     results: List[Dict[str, Any]] = state.get("results", [])
     page: int = state.get("page", 0)
 
