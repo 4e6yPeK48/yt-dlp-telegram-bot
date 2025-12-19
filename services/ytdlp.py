@@ -15,7 +15,7 @@ from config import (
     MAX_RESULTS,
     DURATION_LIMIT_SEC,
     CONCURRENT_DOWNLOADS,
-    YTDLP_THREAD_TIMEOUT,
+    YTDLP_THREAD_TIMEOUT, MAX_FILE_BYTES,
 )
 from bot.dispatcher import logger
 
@@ -34,6 +34,11 @@ try:
     from bot.dispatcher import download_sem  # type: ignore
 except Exception:
     download_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
+
+
+class FileTooLargeError(Exception):
+    """Raised when a downloaded file exceeds configured MAX_FILE_BYTES."""
+    pass
 
 
 def make_duration_match_filter(
@@ -359,6 +364,21 @@ async def download_media_to_temp(
                         os.remove(moved)
                 if processed and os.path.exists(processed):
                     t_dst = processed
+
+            try:
+                size = os.path.getsize(m_dst)
+            except Exception:
+                size = 0
+            if MAX_FILE_BYTES and size and size > MAX_FILE_BYTES:
+                shutil.rmtree(stable_dir, ignore_errors=True)
+                shutil.rmtree(tmpdir_, ignore_errors=True)
+                logger.error(
+                    "Скачанный файл превышает максимально допустимый размер %d bytes: %s (%d bytes)",
+                    MAX_FILE_BYTES,
+                    m_dst,
+                    size,
+                )
+                raise FileTooLargeError(f"File too large: {size} bytes (limit {MAX_FILE_BYTES})")
 
             items_.append((m_dst, t_dst))
 

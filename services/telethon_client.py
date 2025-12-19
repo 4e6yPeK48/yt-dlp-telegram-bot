@@ -117,18 +117,24 @@ async def send_file_via_user(chat_id: int, file_path: str, *, caption: Optional[
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                # telethon accept int id; chat_id is user id or chat id
-                # if thumb provided, pass as 'thumb'
+                try:
+                    entity = await client.get_entity(chat_id)
+                except ValueError as ve:
+                    logger.warning("get_entity failed for %s on attempt %d: %s", str(chat_id), attempt, ve)
+                    try:
+                        await client.get_dialogs(limit=10)
+                    except Exception:
+                        pass
+                    entity = await client.get_entity(chat_id)
+
                 kwargs = {}
                 if caption:
                     kwargs["caption"] = caption
                 if thumb and os.path.exists(thumb):
                     kwargs["thumb"] = thumb
-                # Telethon will infer file type; supports_streaming is not an explicit parameter,
-                # but we can pass force_document=False to try to send as video where appropriate.
-                # If it's necessary to force document, pass force_document=True.
+
                 await asyncio.wait_for(
-                    client.send_file(chat_id, file_path, **kwargs),
+                    client.send_file(entity, file_path, **kwargs),
                     timeout=300
                 )
                 logger.info("Sent file via Telethon to %s: %s", str(chat_id), file_path)

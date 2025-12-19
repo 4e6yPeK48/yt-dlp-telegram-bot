@@ -25,6 +25,10 @@ MAX_PLAYLIST_ITEMS: int = 10
 DURATION_LIMIT_SEC: int = 30 * 60
 YTDLP_THREAD_TIMEOUT: int = 5 * 60  # seconds
 
+# Safety cap for single downloaded file (default 2 GiB)
+MAX_FILE_MB: int = int(os.getenv("MAX_FILE_MB", "2048"))  # megabytes
+MAX_FILE_BYTES: int = MAX_FILE_MB * 1024 * 1024
+
 # Query limits
 MAX_QUERY_LEN: int = 120
 

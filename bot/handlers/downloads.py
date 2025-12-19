@@ -1,7 +1,8 @@
+# File: final_project/bot/handlers/downloads.py
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import logger
-from services.ytdlp import download_media_to_temp, extract_basic_info
+from services.ytdlp import download_media_to_temp, extract_basic_info, FileTooLargeError
 from services.telegram import send_by_mode
 from storage.state import (
     end_user_download,
@@ -34,7 +35,20 @@ async def perform_download(
             title = None
             duration = None
 
-        files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
+        try:
+            files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
+        except FileTooLargeError:
+            logger.warning("Загрузка прервана: файл превышает максимально допустимый размер (user=%s, mode=%s)", str(user_id), mode)
+            try:
+                await bot.send_message(chat_id, "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота.")
+                from services import telethon_client
+                if telethon_client.get_client():
+                    username = telethon_client.get_username() or "alternate account"
+                    await bot.send_message(chat_id, f"⚠️ Можно попытаться доставить через альтернативный аккаунт @{username}. Отправьте любое сообщение этому аккаунту и попробуйте снова.")
+            except Exception:
+                pass
+            return
+
         if not files:
             logger.info(
                 "Загрузка завершена: нечего отправлять (user=%s, mode=%s)",
