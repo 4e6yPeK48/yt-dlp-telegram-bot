@@ -6,8 +6,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Bot token from environment
-# BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
-BOT_TOKEN: Optional[str] = "8524336951:AAFG9KLCfuSRK6igDPbP2RLnkikYMKlXxyk"
+BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
+
+# Telethon fallback config
+TELETHON_API_ID: Optional[int] = int(os.getenv("TELETHON_API_ID", "0")) or None
+TELETHON_API_HASH: Optional[str] = os.getenv("TELETHON_API_HASH") or None
+TELETHON_SESSION: str = os.getenv("TELETHON_SESSION", "telethon.session")
+TELETHON_FALLBACK_ENABLED: bool = os.getenv("TELETHON_FALLBACK_ENABLED", "True").lower() in ("1", "true", "yes")
+
 
 # Search and pagination
 MAX_RESULTS: int = 25

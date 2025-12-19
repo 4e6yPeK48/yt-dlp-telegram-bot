@@ -7,12 +7,103 @@ from typing import Any, Dict, List, Optional, Tuple
 from aiogram import Bot
 from aiogram.types import FSInputFile, CallbackQuery, Message
 
+from services import telethon_client
 from services.ytdlp import extract_basic_info
 from bot.dispatcher import logger
-from config import TG_MAX_UPLOAD_BYTES
+from config import TG_MAX_UPLOAD_BYTES, TELETHON_FALLBACK_ENABLED
 from storage.state import get_user_cookies_path
 from utils.text import make_caption, format_duration_hms, make_multiline_caption
 from utils.validators import is_youtube_url
+
+
+async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, caption, method, media_arg, extra=None):
+    """Try bot send first, fallback to Telethon if allowed and necessary."""
+    # Check size upfront
+    try:
+        size = os.path.getsize(media_path)
+    except Exception:
+        size = 0
+
+    # If size exceeds Bot API limit, attempt fallback
+    if size and size > TG_MAX_UPLOAD_BYTES and TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
+        username = telethon_client.get_username() or "user account"
+        try:
+            await bot.send_message(chat_id, f"⚠️ File is large — will try alternate delivery. Please send any message to @{username} (the alternate account) within 120 seconds.")
+        except Exception:
+            logger.exception("Failed to notify user about fallback delivery.")
+
+        # Wait for user incoming message to the telethon account as handshake
+        got = await telethon_client.wait_for_user_message(chat_id, timeout=120)
+        if not got:
+            try:
+                await bot.send_message(chat_id, "⌛ Timeout waiting for your message to the alternate account. Cannot deliver the large file.")
+            except Exception:
+                pass
+            return False
+
+        # Send via Telethon
+        try:
+            await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"))
+            try:
+                await bot.send_message(chat_id, "✅ File delivered via alternate account.")
+            except Exception:
+                pass
+            return True
+        except Exception:
+            logger.exception("Telethon fallback send failed.")
+            try:
+                await bot.send_message(chat_id, "❌ Alternate delivery failed (permissions or internal error). Ensure you started a chat with the alternate account and haven't blocked it.")
+            except Exception:
+                pass
+            return False
+
+    # Default: attempt to send via Bot API
+    kwargs = {
+        "chat_id": chat_id,
+        "caption": caption,
+        "parse_mode": None,
+        media_arg: FSInputFile(media_path),
+    }
+    if thumb_path and os.path.exists(thumb_path):
+        kwargs["thumbnail"] = FSInputFile(thumb_path)
+    if extra:
+        kwargs.update(extra)
+
+    try:
+        await getattr(bot, method)(**kwargs)
+        return True
+    except Exception as bot_exc:
+        logger.exception("Bot API send failed: %s", bot_exc)
+        # If file likely too large or other error and fallback available, try Telethon
+        if TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
+            username = telethon_client.get_username() or "user account"
+            try:
+                await bot.send_message(chat_id, f"⚠️ Bot API failed to send file — attempting alternate delivery via @{username}. Please send any message to that account within 120 seconds.")
+            except Exception:
+                pass
+            got = await telethon_client.wait_for_user_message(chat_id, timeout=120)
+            if not got:
+                try:
+                    await bot.send_message(chat_id, "⌛ Timeout waiting for your message to the alternate account. Cannot deliver the file.")
+                except Exception:
+                    pass
+                return False
+            try:
+                await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"))
+                try:
+                    await bot.send_message(chat_id, "✅ File delivered via alternate account.")
+                except Exception:
+                    pass
+                return True
+            except Exception:
+                logger.exception("Telethon fallback send failed after Bot API error.")
+                try:
+                    await bot.send_message(chat_id, "❌ Alternate delivery failed. Ensure the alternate account can message you.")
+                except Exception:
+                    pass
+                return False
+        # No fallback or fallback not available
+        return False
 
 
 async def send_media_files(
@@ -62,17 +153,13 @@ async def send_media_files(
                         )
                         continue
 
-            kwargs: Dict[str, Any] = {
-                "chat_id": chat_id,
-                "caption": caption,
-                "parse_mode": None,
-                media_arg: FSInputFile(media_path),
-            }
-            if thumb_path and os.path.exists(thumb_path):
-                kwargs["thumbnail"] = FSInputFile(thumb_path)
-            if extra:
-                kwargs.update(extra)
-            await getattr(bot, method)(**kwargs)
+            # Replace direct Bot API send with unified wrapper that may fallback to Telethon.
+            sent = await _send_via_bot_or_fallback(
+                bot, chat_id, media_path, thumb_path, caption, method, media_arg, extra
+            )
+            # Use boolean result to optionally skip further processing for this item.
+            if not sent:
+                continue
         finally:
             if media_path:
                 with suppress(Exception):
