@@ -37,20 +37,20 @@ except Exception:
 
 
 class FileTooLargeError(Exception):
-    """Raised when a downloaded file exceeds configured MAX_FILE_BYTES."""
+    """Исключение, поднимаемое при скачивании файла превышающем MAX_FILE_BYTES."""
     pass
 
 
 def make_duration_match_filter(
     max_seconds: int,
 ) -> Callable[[Dict[str, Any]], Optional[str]]:
-    """Создаёт фильтр yt-dlp, отвергающий слишком длинные записи.
+    """Создаёт фильтр для yt-dlp, отвергающий записи длиннее max_seconds.
 
     Args:
-        max_seconds (int): Максимальная длительность.
+        max_seconds (int): Максимальная допустимая длительность в секундах.
 
     Returns:
-        Callable[[Dict[str, Any]], Optional[str]]: Фильтр (строка-причина или None).
+        Callable[[Dict[str, Any]], Optional[str]]: Функция-фильтр, возвращающая строку причины или None.
     """
 
     def _mf(info: Dict[str, Any]) -> Optional[str]:
@@ -63,14 +63,14 @@ def make_duration_match_filter(
 
 
 def decide_effective_mode(user_mode: str, url: str) -> str:
-    """Определяет итоговый режим скачивания.
+    """Определяет фактический режим скачивания на основе выбора пользователя и URL.
 
     Args:
-        user_mode (str): Режим выбранный пользователем ('auto', 'audio', 'video', 'video_nosound').
-        url (str): URL источника.
+        user_mode (str): Выбранный пользователем режим ('auto', 'audio', 'video', 'video_nosound').
+        url (str): URL ресурса.
 
     Returns:
-        str: Итоговый режим ('audio'|'video'|'video_nosound').
+        str: Эффективный режим ('audio'|'video'|'video_nosound').
     """
     if user_mode == "auto":
         return "audio" if is_audio_platform(url) else "video"
@@ -80,19 +80,23 @@ def decide_effective_mode(user_mode: str, url: str) -> str:
 async def ytdlp_extract(
     url_or_query: str, ydl_opts: Dict[str, Any], download: bool
 ) -> Dict[str, Any]:
-    """Вызывает yt-dlp (извлечение или скачивание) в отдельном потоке.
+    """Запускает yt-dlp.extract_info в отдельном потоке с таймаутом.
 
     Args:
         url_or_query (str): URL или поисковый запрос.
-        ydl_opts (Dict[str, Any]): Опции yt-dlp.
-        download (bool): True для скачивания, False для извлечения.
+        ydl_opts (Dict[str, Any]): Опции для YoutubeDL.
+        download (bool): Флаг: True — выполнить скачивание, False — только извлечь информацию.
 
     Returns:
-        Dict[str, Any]: Результат extract_info.
+        Dict[str, Any]: Результат ydl.extract_info.
+
+    Raises:
+        asyncio.TimeoutError: При превышении YTDLP_THREAD_TIMEOUT.
+        Exception: При других ошибках выполнения yt-dlp.
     """
 
     logger.debug(
-        "ytdlp_extract: starting for %s (download=%s)", url_or_query[:200], download
+        "ytdlp_extract: запуск для %s (download=%s)", url_or_query[:200], download
     )
 
     def _run() -> Dict[str, Any]:
@@ -103,31 +107,31 @@ async def ytdlp_extract(
         result = await asyncio.wait_for(
             asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT
         )
-        logger.debug("ytdlp_extract: finished for %s", url_or_query[:200])
+        logger.debug("ytdlp_extract: завершено для %s", url_or_query[:200])
         return result
     except asyncio.TimeoutError:
         logger.error(
-            "ytdlp_extract: timeout after %d seconds for %s",
+            "ytdlp_extract: таймаут через %d секунд для %s",
             YTDLP_THREAD_TIMEOUT,
             url_or_query[:200],
         )
         raise
     except Exception as e:
-        logger.exception("ytdlp_extract: exception for %s: %s", url_or_query[:200], e)
+        logger.exception("ytdlp_extract: исключение для %s: %s", url_or_query[:200], e)
         raise
 
 
 async def search_tracks(
     query: str, cookies_path: Optional[str] = None
 ) -> List[Dict[str, Any]]:
-    """Ищет треки на YouTube и фильтрует по длительности.
+    """Ищет треки по запросу (YouTube search) и фильтрует по длине.
 
     Args:
         query (str): Поисковая строка.
-        cookies_path (Optional[str]): Путь к cookies.txt.
+        cookies_path (Optional[str]): Путь к cookies.txt, если нужен.
 
     Returns:
-        List[Dict[str, Any]]: Список словарей (title, url, duration, channel).
+        List[Dict[str, Any]]: Список словарей с ключами title, url, duration, channel.
     """
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
@@ -161,14 +165,14 @@ async def search_tracks(
 async def extract_basic_info(
     url: str, cookies_path: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Извлекает базовую информацию без скачивания.
+    """Извлекает базовую информацию о ресурсе без скачивания.
 
     Args:
-        url (str): URL ресурса.
-        cookies_path (Optional[str]): Путь к cookies.txt.
+        url (str): Ссылка на ресурс.
+        cookies_path (Optional[str]): Путь к cookies.txt при необходимости.
 
     Returns:
-        Dict[str, Any]: title, duration, channel, thumbnail.
+        Dict[str, Any]: Словарь с ключами 'title', 'duration', 'channel', 'thumbnail'.
     """
     ydl_opts: Dict[str, Any] = {
         "quiet": True,
@@ -235,12 +239,15 @@ async def download_media_to_temp(
     """Скачивает медиа и подготавливает миниатюры во временные директории.
 
     Args:
-        url (str): Ссылка.
+        url (str): Ссылка на ресурс.
         mode (str): Режим ('audio'|'video'|'video_nosound').
         cookies_path (Optional[str]): Путь к cookies.txt.
 
     Returns:
-        List[Tuple[str, Optional[str]]]: Пары (путь к медиа, путь к миниатюре или None).
+        List[Tuple[str, Optional[str]]]: Список пар (путь_к_медиа, путь_к_миниатюре_or_None).
+
+    Raises:
+        FileTooLargeError: Если скачанный файл превышает MAX_FILE_BYTES.
     """
     tmpdir = tempfile.mkdtemp(prefix="dl_")
     if mode == "audio":

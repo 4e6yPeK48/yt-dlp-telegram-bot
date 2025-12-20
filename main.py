@@ -28,10 +28,10 @@ async def main() -> None:
         await telethon_client.ensure_client_started()
     except Exception as e:
         if TELETHON_FALLBACK_ENABLED:
-            logger.error("Telethon fallback configured but client failed to start: %s", e)
+            logger.error("Включён Telethon-fallback, но не удалось запустить клиент: %s", e)
             raise
         else:
-            logger.warning("Continuing without Telethon fallback: %s", e)
+            logger.warning("Продолжаю без Telethon-fallback: %s", e)
 
     bot = Bot(
         BOT_TOKEN,
@@ -44,7 +44,7 @@ async def main() -> None:
         try:
             await telethon_client.disconnect_client()
         except Exception:
-            logger.exception("Error disconnecting Telethon client on shutdown")
+            logger.exception("Ошибка при отключении Telethon-клиента при завершении")
 
 
 if __name__ == "__main__":

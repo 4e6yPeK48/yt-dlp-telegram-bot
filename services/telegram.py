@@ -17,46 +17,71 @@ from utils.validators import is_youtube_url
 
 
 async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, caption, method, media_arg, extra=None):
-    """Try bot send first, fallback to Telethon if allowed and necessary."""
+    """Пробует отправить файл через Bot API, при необходимости выполняет fallback через Telethon.
+
+    Сначала пытается отправить файлы стандартным методом бота. Если файл превышает
+    лимит Telegram или Bot API возвращает ошибку и включён TELETHON_FALLBACK_ENABLED,
+    инициирует процедуру альтернативной доставки через авторизованный пользовательский аккаунт.
+
+    Args:
+        bot: Объект aiogram.Bot.
+        chat_id: Идентификатор чата/пользователя.
+        media_path: Путь к медиафайлу.
+        thumb_path: Путь к миниатюре (или None).
+        caption: Подпись к файлу.
+        method: Имя метода Bot API (например, "send_audio"/"send_video").
+        media_arg: Аргумент для файла ("audio" или "video").
+        extra: Дополнительные параметры для метода.
+
+    Returns:
+        bool: True если отправлено успешно (через бота или Telethon), False в противном случае.
+    """
     try:
         size = os.path.getsize(media_path)
     except Exception:
         size = 0
 
-    # If size exceeds Bot API limit, attempt fallback
     if size and size > TG_MAX_UPLOAD_BYTES and TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
         username = telethon_client.get_username() or "user account"
         try:
-            await bot.send_message(chat_id, f"⚠️ File is large — will try alternate delivery. Please send any message to @{username} (the alternate account) within 120 seconds.")
+            await bot.send_message(chat_id, f"⚠️ Файл большой — будет попытка альтернативной доставки. Пожалуйста, отправьте любое сообщение @{username} (альтернативному аккаунту) в течение 120 секунд.")
         except Exception:
-            logger.exception("Failed to notify user about fallback delivery.")
+            logger.exception("Не удалось уведомить пользователя о переходе на альтернативную доставку.")
 
-        # Wait for user incoming message to the telethon account as handshake
         got = await telethon_client.wait_for_user_message(chat_id, timeout=120)
         if not got:
             try:
-                await bot.send_message(chat_id, "⌛ Timeout waiting for your message to the alternate account. Cannot deliver the large file.")
+                await bot.send_message(chat_id, "⌛ Таймаут ожидания сообщения альтернативному аккаунту. Нельзя доставить большой файл.")
             except Exception:
                 pass
             return False
 
-        # Send via Telethon
         try:
-            await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"))
+            await bot.send_message(chat_id, "✅ Налажено соединение. Начинаю альтернативную доставку через авторизованный аккаунт...")
+        except Exception:
+            logger.exception("Не удалось уведомить пользователя о полученном рукопожатии.")
+
+        async def _notify_to_user(text: str) -> None:
             try:
-                await bot.send_message(chat_id, "✅ File delivered via alternate account.")
+                await bot.send_message(chat_id, text)
+            except Exception:
+                logger.debug("Не удалось отправить уведомление пользователю: %s", text)
+
+        try:
+            await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"), notify=_notify_to_user)
+            try:
+                await bot.send_message(chat_id, "✅ Файл доставлен через альтернативный аккаунт.")
             except Exception:
                 pass
             return True
         except Exception:
-            logger.exception("Telethon fallback send failed.")
+            logger.exception("Альтернативная доставка через Telethon не удалась.")
             try:
-                await bot.send_message(chat_id, "❌ Alternate delivery failed (permissions or internal error). Ensure you started a chat with the alternate account and haven't blocked it.")
+                await bot.send_message(chat_id, "❌ Альтернативная доставка не удалась (проблемы с правами или внутренняя ошибка). Убедитесь, что вы начали диалог с альтернативным аккаунтом и не заблокировали его.")
             except Exception:
                 pass
             return False
 
-    # Default: attempt to send via Bot API
     kwargs = {
         "chat_id": chat_id,
         "caption": caption,
@@ -72,8 +97,7 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
         await getattr(bot, method)(**kwargs)
         return True
     except Exception as bot_exc:
-        logger.exception("Bot API send failed: %s", bot_exc)
-        # If file likely too large or other error and fallback available, try Telethon
+        logger.exception("Ошибка отправки через Bot API: %s", bot_exc)
         if TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
             username = telethon_client.get_username() or "user account"
             try:
@@ -87,17 +111,29 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
                 except Exception:
                     pass
                 return False
+
             try:
-                await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"))
+                await bot.send_message(chat_id, "✅ Налажено соединение. Начинаю альтернативную доставку через авторизованный аккаунт...")
+            except Exception:
+                logger.exception("Не удалось уведомить пользователя о полученном рукопожатии.")
+
+            async def _notify_to_user(text: str) -> None:
+                try:
+                    await bot.send_message(chat_id, text)
+                except Exception:
+                    logger.debug("Не удалось отправить уведомление пользователю: %s", text)
+
+            try:
+                await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"), notify=_notify_to_user)
                 try:
                     await bot.send_message(chat_id, "✅ Файл доставлен через альтернативный аккаунт.")
                 except Exception:
                     pass
                 return True
             except Exception:
-                logger.exception("Telethon fallback send failed after Bot API error.")
+                logger.exception("Альтернативная доставка не удалась после ошибки Bot API.")
                 try:
-                    await bot.send_message(chat_id, "❌ Альтернативная доставка не удалась (возможно, проблемы с правами или внутренняя ошибка). Убедитесь, что вы начали чат с альтернативным аккаунтом и не заблокировали его.")
+                    await bot.send_message(chat_id, "❌ Альтернативная доставка не удалась (возможно, проблемы с правами или внутренняя ошибка). Убедитесь, что вы начали диалог с альтернативным аккаунтом и не заблокировали его.")
                 except Exception:
                     pass
                 return False
