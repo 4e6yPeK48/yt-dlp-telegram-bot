@@ -47,31 +47,30 @@ async def perform_download(
         None
     """
     try:
-        async with download_sem:
-            try:
-                info = await extract_basic_info(url, cookies_path=cookies_path)
-                title = info.get("title")
-                duration = info.get("duration")
-            except Exception:
-                title = None
-                duration = None
+        try:
+            info = await extract_basic_info(url, cookies_path=cookies_path)
+            title = info.get("title")
+            duration = info.get("duration")
+        except Exception:
+            title = None
+            duration = None
 
+        try:
+            files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
+        except FileTooLargeError:
+            logger.warning("Загрузка прервана: файл превышает максимально допустимый размер (user=%s, mode=%s)",
+                           str(user_id), mode)
             try:
-                files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
-            except FileTooLargeError:
-                logger.warning("Загрузка прервана: файл превышает максимально допустимый размер (user=%s, mode=%s)",
-                               str(user_id), mode)
-                try:
+                await bot.send_message(chat_id,
+                                       "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота.")
+                from services import telethon_client
+                if telethon_client.get_client():
+                    username = telethon_client.get_username() or "alternate account"
                     await bot.send_message(chat_id,
-                                           "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота.")
-                    from services import telethon_client
-                    if telethon_client.get_client():
-                        username = telethon_client.get_username() or "alternate account"
-                        await bot.send_message(chat_id,
-                                               f"⚠️ Можно попытаться доставить через альтернативный аккаунт @{username}. Отправьте любое сообщение этому аккаунту и попробуйте снова.")
-                except Exception:
-                    pass
-                return
+                                           f"⚠️ Можно попытаться доставить через альтернативный аккаунт @{username}. Отправьте любое сообщение этому аккаунту и попробуйте снова.")
+            except Exception:
+                pass
+            return
 
         if not files:
             logger.info(

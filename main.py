@@ -31,7 +31,7 @@ async def main() -> None:
             logger.error("Включён Telethon-fallback, но не удалось запустить клиент: %s", e)
             raise
     else:
-        logger.warning("Продолжаю без Telethon-fallback: %s", e)
+        logger.warning("Продолжаю без Telethon-fallback: %s")
 
     bot = Bot(
         BOT_TOKEN,

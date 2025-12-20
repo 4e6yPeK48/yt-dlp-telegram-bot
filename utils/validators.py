@@ -12,7 +12,7 @@ def is_url(text: str) -> bool:
         bool: True, если строка похожа на URL, иначе False.
     """
     with suppress(Exception):
-        u = urlparse(text.strip())
+        u = urlparse((text or "").strip())
         return u.scheme in {"http", "https"} and bool(u.netloc)
     return False
 

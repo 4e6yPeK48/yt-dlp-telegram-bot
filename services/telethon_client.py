@@ -180,8 +180,8 @@ class TelethonManager:
                             await notify("⏳ Альтернативная доставка: подготовка...")
                     try:
                         entity = await client.get_entity(chat_id)
-                    except ValueError:
-                        logger.warning("get_entity не удался для %s на попытке %d: %s", str(chat_id), attempt)
+                    except ValueError as ve:
+                        logger.warning("get_entity не удался для %s на попытке %d: %s", str(chat_id), attempt, str(ve))
                         try:
                             await client.get_dialogs(limit=20)
                         except Exception:
@@ -263,6 +263,7 @@ class TelethonManager:
             return False
         username = self.get_username() or "alternate account"
         try:
+            logger.info("Попытка альтернативной доставки файла %s пользователю %s через Telethon.", file_path, str(chat_id))
             try:
                 await bot.send_message(chat_id,
                                        f"⚠️ Файл большой — будет попытка альтернативной доставки. Пожалуйста, отправьте любое сообщение @{username} (альтернативному аккаунту) в течение 120 секунд.")

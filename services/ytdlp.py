@@ -9,7 +9,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
-
 from config import (
     MAX_PLAYLIST_ITEMS,
     MAX_RESULTS,
@@ -139,7 +138,7 @@ async def search_tracks(
         "noplaylist": True,
         "default_search": "ytsearch",
     }
-    if cookies_path and os.path.exists(cookies_path):
+    if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
         ydl_opts["cookiefile"] = cookies_path
 
     info = await ytdlp_extract(
@@ -181,7 +180,7 @@ async def extract_basic_info(
         "playlist_items": "1",
         "logger": logging.getLogger("yt_dlp"),
     }
-    if cookies_path and os.path.exists(cookies_path):
+    if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
         ydl_opts["cookiefile"] = cookies_path
     info = await ytdlp_extract(url, ydl_opts, download=False)
     item = info
@@ -295,7 +294,7 @@ async def download_media_to_temp(
         "match_filter": make_duration_match_filter(DURATION_LIMIT_SEC),
         **extra,
     }
-    if cookies_path and os.path.exists(cookies_path):
+    if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
         ydl_opts["cookiefile"] = cookies_path
 
     async with download_sem:
@@ -308,15 +307,6 @@ async def download_media_to_temp(
             raise e
 
     def _sync_postprocess(tmpdir_: str, mode_: str) -> List[Tuple[str, Optional[str]]]:
-        from services.media import (
-            find_audio_files,
-            find_image_files,
-            find_video_files,
-            norm_base,
-            extract_id_from_base,
-            process_thumbnail,
-        )
-
         if mode_ == "audio":
             media_files = find_audio_files(tmpdir_)
         else:
@@ -365,7 +355,11 @@ async def download_media_to_temp(
                 with suppress(Exception):
                     shutil.move(t_src, moved)
                 logger.info("Обрабатываю обложку: %s", moved)
-                processed = process_thumbnail(moved, stable_dir)
+                try:
+                    processed = asyncio.run(process_thumbnail(moved, stable_dir))
+                except Exception:
+                    processed = None
+
                 if os.path.exists(moved) and (not processed or processed != moved):
                     with suppress(Exception):
                         os.remove(moved)

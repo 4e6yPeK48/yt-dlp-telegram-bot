@@ -1,13 +1,14 @@
 import re
 from typing import Any, Optional
-from config import CAPTION_MAX_LEN
+from config import CAPTION_MAX_LEN, MAX_QUERY_LEN
 
 
-def sanitize_query(text: str, max_len: int = 256) -> str:
+def sanitize_query(text: str, max_len: int = MAX_QUERY_LEN) -> str:
     """Очищает поисковый запрос (управляющие символы, пробелы, длину).
 
     Args:
         text (str): Исходный текст.
+        max_len (int): Максимальная длина.
 
     Returns:
         str: Санитизированный запрос.
