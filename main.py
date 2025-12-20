@@ -24,14 +24,14 @@ async def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
 
-    try:
-        await telethon_client.ensure_client_started()
-    except Exception as e:
-        if TELETHON_FALLBACK_ENABLED:
+    if TELETHON_FALLBACK_ENABLED:
+        try:
+            await telethon_client.ensure_client_started()
+        except Exception as e:
             logger.error("Включён Telethon-fallback, но не удалось запустить клиент: %s", e)
             raise
-        else:
-            logger.warning("Продолжаю без Telethon-fallback: %s", e)
+    else:
+        logger.warning("Продолжаю без Telethon-fallback: %s", e)
 
     bot = Bot(
         BOT_TOKEN,

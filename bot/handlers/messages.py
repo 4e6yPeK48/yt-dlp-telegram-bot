@@ -1,4 +1,5 @@
 import os
+from asyncio import to_thread
 from contextlib import suppress
 
 from aiogram import Bot, F
@@ -113,7 +114,6 @@ async def handle_text(msg: Message, bot: Bot) -> None:
 
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
-    """Обрабатывает загрузку cookies.txt и повторяет операцию."""
     if msg.from_user is None:
         logger.info("Получен файл, но не удалось определить пользователя.")
         await msg.answer("📄 Файл получен, но не удалось определить пользователя.")
@@ -163,7 +163,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     try:
         await bot.download(doc, destination=cookies_path)
         with suppress(Exception):
-            real_size = os.path.getsize(cookies_path)
+            real_size = await to_thread(os.path.getsize, cookies_path)
             logger.info(
                 "Cookies сохранены для %s: %s (%d байт)",
                 msg.from_user.id,
@@ -176,12 +176,12 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         return
 
     with suppress(Exception):
-        real_size = os.path.getsize(cookies_path)
+        real_size = await to_thread(os.path.getsize, cookies_path)
         if real_size > COOKIES_MAX_BYTES:
             lim_mb = COOKIES_MAX_BYTES / (1024 * 1024)
             cur_mb = real_size / (1024 * 1024)
             with suppress(Exception):
-                os.remove(cookies_path)
+                await to_thread(os.remove, cookies_path)
             logger.info(
                 "Слишком большой сохранённый файл cookies от %s: %.2f МБ (лимит %.0f МБ)",
                 msg.from_user.id,

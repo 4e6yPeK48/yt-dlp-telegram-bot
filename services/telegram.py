@@ -38,7 +38,7 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
         bool: True если отправлено успешно (через бота или Telethon), False в противном случае.
     """
     try:
-        size = os.path.getsize(media_path)
+        size = await asyncio.to_thread(os.path.getsize, media_path)
     except Exception:
         size = 0
 
@@ -56,7 +56,7 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
         "parse_mode": None,
         media_arg: FSInputFile(media_path),
     }
-    if thumb_path and os.path.exists(thumb_path):
+    if thumb_path and await asyncio.to_thread(os.path.exists, thumb_path):
         kwargs["thumbnail"] = FSInputFile(thumb_path)
     if extra:
         kwargs.update(extra)

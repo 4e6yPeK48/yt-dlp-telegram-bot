@@ -32,11 +32,17 @@ class TelethonManager:
         Returns:
             None
         """
+        if not TELETHON_FALLBACK_ENABLED:
+            logger.info("Telethon-fallback отключён; пропускаю инициализацию клиента.")
+            return
+
         if self._client is not None and getattr(self._client, "is_connected", lambda: True)():
             return
+
         if not self._api_id or not self._api_hash:
             logger.warning("Учётные данные Telethon не заданы; fallback Telethon отключён.")
             return
+
         async with self._client_lock:
             if self._client is not None:
                 return
@@ -47,12 +53,7 @@ class TelethonManager:
                 if not is_auth:
                     msg = "Сессия Telethon не авторизована. Интерактивный вход недоступен в боте."
                     logger.error(msg)
-                    if TELETHON_FALLBACK_ENABLED:
-                        raise RuntimeError(msg)
-                    else:
-                        await self._client.disconnect()
-                        self._client = None
-                        return
+                    raise RuntimeError(msg)
                 me = await self._client.get_me()
                 self._me_cache = {
                     "id": getattr(me, "id", None),
