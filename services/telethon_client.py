@@ -9,232 +9,352 @@ from telethon.tl.types import InputPeerUser
 from config import TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION, TELETHON_FALLBACK_ENABLED
 from bot.dispatcher import download_sem, logger
 
-_client: Optional[TelegramClient] = None
-_client_lock = asyncio.Lock()
-_me_cache: Optional[dict] = None
+NotifyCallable = Optional[Callable[[str], Awaitable[None]]]
+
+
+class TelethonManager:
+    def __init__(self, session: str = TELETHON_SESSION, api_id: Optional[int] = TELETHON_API_ID,
+                 api_hash: Optional[str] = TELETHON_API_HASH) -> None:
+        self._session = session
+        self._api_id = api_id
+        self._api_hash = api_hash
+        self._client: Optional[TelegramClient] = None
+        self._client_lock = asyncio.Lock()
+        self._me_cache: Optional[dict] = None
+
+    async def ensure_started(self) -> None:
+        """Инициализировать и подключить синглтон Telethon-клиента.
+
+        Выполняет ленивую инициализацию клиента. Если учётные данные не заданы,
+        ничего не делает. Если сессия не авторизована и TELETHON_FALLBACK_ENABLED
+        включён, возбуждает RuntimeError.
+
+        Returns:
+            None
+        """
+        if self._client is not None and getattr(self._client, "is_connected", lambda: True)():
+            return
+        if not self._api_id or not self._api_hash:
+            logger.warning("Учётные данные Telethon не заданы; fallback Telethon отключён.")
+            return
+        async with self._client_lock:
+            if self._client is not None:
+                return
+            self._client = TelegramClient(self._session, self._api_id, self._api_hash)
+            try:
+                await self._client.connect()
+                is_auth = await self._client.is_user_authorized()
+                if not is_auth:
+                    msg = "Сессия Telethon не авторизована. Интерактивный вход недоступен в боте."
+                    logger.error(msg)
+                    if TELETHON_FALLBACK_ENABLED:
+                        raise RuntimeError(msg)
+                    else:
+                        await self._client.disconnect()
+                        self._client = None
+                        return
+                me = await self._client.get_me()
+                self._me_cache = {
+                    "id": getattr(me, "id", None),
+                    "username": getattr(me, "username", None),
+                    "title": str(me),
+                }
+                logger.info("Telethon-клиент подключён как %s (id=%s)",
+                            self._me_cache.get("username") or self._me_cache.get("title"), self._me_cache.get("id"))
+            except Exception:
+                logger.exception("Не удалось запустить Telethon-клиент.")
+                if self._client:
+                    with suppress(Exception):
+                        await self._client.disconnect()
+                    self._client = None
+                raise
+
+    async def disconnect(self) -> None:
+        """Отключить Telethon-клиент при завершении работы.
+
+        Не удаляет файл сессии, только аккуратно отключается.
+
+        Returns:
+            None
+        """
+        if not self._client:
+            return
+        try:
+            await self._client.disconnect()
+            logger.info("Telethon-клиент отключён.")
+        except Exception:
+            logger.exception("Ошибка при отключении Telethon-клиента.")
+        finally:
+            self._client = None
+            self._me_cache = None
+
+    def get_client(self) -> Optional[TelegramClient]:
+        """Получить текущий экземпляр Telethon-клиента (или None).
+        Returns:
+            Optional[TelegramClient]: Экземпляр клиента или None.
+        """
+        return self._client
+
+    def get_username(self) -> Optional[str]:
+        """Вернуть username авторизованного аккаунта, если доступен.
+
+        Returns:
+            Optional[str]: username или None.
+        """
+        return self._me_cache.get("username") if self._me_cache else None
+
+    async def wait_for_user_message(self, user_id: int, timeout: int = 120) -> bool:
+        """Ожидать любое входящее сообщение от пользователя в указанный таймаут.
+
+        Args:
+            user_id (int): Идентификатор пользователя/чата, от которого ожидается сообщение.
+            timeout (int): Таймаут в секундах.
+
+        Returns:
+            bool: True если сообщение получено, False при таймауте или ошибке.
+        """
+        client = self.get_client()
+        if not client:
+            logger.info("wait_for_user_message: Telethon-клиент недоступен.")
+            return False
+        fut = asyncio.get_event_loop().create_future()
+
+        @client.on(events.NewMessage(from_users=user_id))
+        async def _handler(event):
+            if not fut.done():
+                fut.set_result(True)
+            client.remove_event_handler(_handler, events.NewMessage)
+
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError:
+            try:
+                client.remove_event_handler(_handler, events.NewMessage)
+            except Exception:
+                pass
+            return False
+        except Exception:
+            logger.exception("Ошибка при ожидании сообщения пользователя через Telethon.")
+            try:
+                client.remove_event_handler(_handler, events.NewMessage)
+            except Exception:
+                pass
+            return False
+
+    async def send_file_via_user(
+            self,
+            chat_id: int,
+            file_path: str,
+            *,
+            caption: Optional[str] = None,
+            thumb: Optional[str] = None,
+            supports_streaming: bool = False,
+            notify: NotifyCallable = None,
+    ) -> None:
+        """Отправить файл через авторизованный пользовательский аккаунт Telethon.
+
+        Args:
+            chat_id (int): Идентификатор получателя (user/chat id).
+            file_path (str): Путь к файлу для отправки.
+            caption (Optional[str]): Подпись к файлу.
+            thumb (Optional[str]): Путь к миниатюре.
+            supports_streaming (bool): Флаг для поддержки стриминга (для видео).
+            notify (Optional[Callable[[str], Awaitable[None]]]): Необязательный корутин для
+                отправки статусов (например, "загрузка", "повтор", "готово") обратно боту/пользователю.
+
+        Raises:
+            RuntimeError: Если Telethon-клиент не инициализирован.
+            Exception: Пробрасывает исключения при фатальных ошибках отправки.
+        """
+        client = self.get_client()
+        if not client:
+            raise RuntimeError("Telethon-клиент не инициализирован")
+        async with download_sem:
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    if notify:
+                        with suppress(Exception):
+                            logger.info("Уведомление пользователя о подготовке альтернативной доставки.")
+                            await notify("⏳ Альтернативная доставка: подготовка...")
+                    try:
+                        entity = await client.get_entity(chat_id)
+                    except ValueError:
+                        logger.warning("get_entity не удался для %s на попытке %d: %s", str(chat_id), attempt)
+                        try:
+                            await client.get_dialogs(limit=20)
+                        except Exception:
+                            pass
+                        entity = await client.get_entity(chat_id)
+
+                    kwargs = {}
+                    if caption:
+                        kwargs["caption"] = caption
+                    if thumb and os.path.exists(thumb):
+                        kwargs["thumb"] = thumb
+                    if supports_streaming:
+                        kwargs["supports_streaming"] = True
+
+                    if notify:
+                        with suppress(Exception):
+                            logger.info("Уведомление пользователя о начале загрузки альтернативной доставки.")
+                            await notify("⏳ Альтернативная доставка: начинаю загрузку...")
+
+                    await asyncio.wait_for(client.send_file(entity, file_path, **kwargs), timeout=300)
+
+                    if notify:
+                        with suppress(Exception):
+                            logger.info("Уведомление пользователя о завершении альтернативной доставки.")
+                            await notify("✅ Альтернативная доставка: загрузка завершена.")
+                    logger.info("Отправлено через Telethon пользователю %s: %s", str(chat_id), file_path)
+                    return
+                except errors.FloodWaitError as e:
+                    wait = int(getattr(e, "seconds", 5))
+                    logger.warning("Telethon FloodWait %s секунд; ожидаю...", wait)
+                    if notify:
+                        with suppress(Exception):
+                            await notify(f"⚠️ Альтернативная доставка: ожидание из-за лимита {wait} с...")
+                    await asyncio.sleep(wait + 1)
+                except asyncio.TimeoutError:
+                    logger.warning("Таймаут отправки Telethon на попытке %d для %s", attempt, file_path)
+                    if notify:
+                        with suppress(Exception):
+                            await notify(
+                                f"⚠️ Альтернативная доставка: загрузка превысила время (попытка {attempt}). Повтор...")
+                except Exception as e:
+                    logger.exception("Попытка отправки Telethon №%d завершилась ошибкой: %s", attempt, str(e))
+                    if notify:
+                        with suppress(Exception):
+                            await notify(f"⚠️ Ошибка альтернативной доставки (попытка {attempt}): {str(e)}")
+                await asyncio.sleep(1 * attempt)
+            if notify:
+                with suppress(Exception):
+                    await notify("❌ Альтернативная доставка не удалась после повторных попыток.")
+            raise RuntimeError("Не удалось отправить файл через Telethon после повторных попыток")
+
+    async def request_alternate_delivery_and_send(
+            self,
+            bot,
+            chat_id: int,
+            file_path: str,
+            caption: Optional[str] = None,
+            thumb: Optional[str] = None,
+            supports_streaming: bool = False,
+            timeout: int = 120,
+    ) -> bool:
+        """
+        Запросить у пользователя подтверждение для альтернативной доставки
+        через авторизованный Telethon-аккаунт и отправить файл.
+        Args:
+            bot: Экземпляр бота для отправки сообщений.
+            chat_id (int): Идентификатор чата пользователя.
+            file_path (str): Путь к файлу для отправки.
+            caption (Optional[str]): Подпись к файлу.
+            thumb (Optional[str]): Путь к миниатюре.
+            supports_streaming (bool): Флаг поддержки стриминга.
+            timeout (int): Таймаут ожидания сообщения от пользователя.
+
+        Returns:
+            bool: True если доставка успешна, False в случае ошибки или таймаута.
+        """
+        if not self.get_client():
+            logger.info("request_alternate_delivery_and_send: Telethon-клиент не инициализирован.")
+            return False
+        username = self.get_username() or "alternate account"
+        try:
+            try:
+                await bot.send_message(chat_id,
+                                       f"⚠️ Файл большой — будет попытка альтернативной доставки. Пожалуйста, отправьте любое сообщение @{username} (альтернативному аккаунту) в течение 120 секунд.")
+            except Exception:
+                logger.exception("Не удалось уведомить пользователя о переходе на альтернативную доставку.")
+            got = await self.wait_for_user_message(chat_id, timeout=timeout)
+            if not got:
+                try:
+                    await bot.send_message(chat_id,
+                                           "⌛ Таймаут ожидания сообщения альтернативному аккаунту. Нельзя доставить большой файл.")
+                except Exception:
+                    pass
+                return False
+
+            try:
+                await bot.send_message(chat_id,
+                                       "✅ Налажено соединение. Начинаю альтернативную доставку через авторизованный аккаунт...")
+            except Exception:
+                logger.exception("Не удалось уведомить пользователя о полученном рукопожатии.")
+
+            async def _notify_to_user(text: str) -> None:
+                try:
+                    await bot.send_message(chat_id, text)
+                except Exception:
+                    logger.debug("Не удалось отправить уведомление пользователю: %s", text)
+
+            try:
+                await self.send_file_via_user(chat_id, file_path, caption=caption, thumb=thumb,
+                                              supports_streaming=supports_streaming, notify=_notify_to_user)
+                try:
+                    await bot.send_message(chat_id, "✅ Файл доставлен через альтернативный аккаунт.")
+                except Exception:
+                    pass
+                return True
+            except Exception:
+                logger.exception("Альтернативная доставка через Telethon не удалась.")
+                try:
+                    await bot.send_message(chat_id,
+                                           "❌ Альтернативная доставка не удалась (проблемы с правами или внутренняя ошибка). Убедитесь, что вы начали диалог с альтернативным аккаунтом и не заблокировали его.")
+                except Exception:
+                    pass
+                return False
+        except Exception:
+            logger.exception("Ошибка в request_alternate_delivery_and_send.")
+            return False
+
+
+telethon_manager = TelethonManager()
 
 
 async def ensure_client_started() -> None:
-    """Инициализировать и подключить синглтон Telethon-клиента.
-
-    Выполняет ленивую инициализацию клиента. Если учётные данные не заданы,
-    ничего не делает. Если сессия не авторизована и TELETHON_FALLBACK_ENABLED
-    включён, возбуждает RuntimeError.
-
-    Raises:
-        RuntimeError: Если сессия не авторизована и TELETHON_FALLBACK_ENABLED == True.
-        Exception: Пробрасывает исключения при ошибках подключения.
-    """
-    global _client, _me_cache
-    if _client is not None and _client.is_connected():
-        return
-    if not TELETHON_API_ID or not TELETHON_API_HASH:
-        logger.warning("Учётные данные Telethon не заданы; fallback Telethon отключён.")
-        return
-    async with _client_lock:
-        if _client is not None:
-            return
-        _client = TelegramClient(TELETHON_SESSION, TELETHON_API_ID, TELETHON_API_HASH)
-        try:
-            await _client.connect()
-            is_auth = await _client.is_user_authorized()
-            if not is_auth:
-                msg = "Сессия Telethon не авторизована. Интерактивный вход недоступен в боте."
-                logger.error(msg)
-                if TELETHON_FALLBACK_ENABLED:
-                    raise RuntimeError(msg)
-                else:
-                    await _client.disconnect()
-                    _client = None
-                    return
-            me = await _client.get_me()
-            _me_cache = {"id": getattr(me, "id", None), "username": getattr(me, "username", None), "title": str(me)}
-            logger.info("Telethon-клиент подключён как %s (id=%s)", _me_cache.get("username") or _me_cache.get("title"),
-                        _me_cache.get("id"))
-        except Exception:
-            logger.exception("Не удалось запустить Telethon-клиент.")
-            if _client:
-                with suppress(Exception):
-                    await _client.disconnect()
-                _client = None
-            raise
+    return await telethon_manager.ensure_started()
 
 
 async def disconnect_client() -> None:
-    """Отключить Telethon-клиент при завершении работы.
-
-    Не удаляет файл сессии, только аккуратно отключается.
-
-    Returns:
-        None
-    """
-    global _client
-    global _me_cache
-    if _client is None:
-        return
-    try:
-        await _client.disconnect()
-        logger.info("Telethon-клиент отключён.")
-    except Exception:
-        logger.exception("Ошибка при отключении Telethon-клиента.")
-    finally:
-        _client = None
-        _me_cache = None
+    return await telethon_manager.disconnect()
 
 
 def get_client() -> Optional[TelegramClient]:
-    """Получить текущий экземпляр Telethon-клиента (или None).
-    Returns:
-        Optional[TelegramClient]: Экземпляр клиента или None.
-    """
-    return _client
+    return telethon_manager.get_client()
 
 
 def get_username() -> Optional[str]:
-    """Вернуть username авторизованного аккаунта, если доступен.
-
-    Returns:
-        Optional[str]: username или None.
-    """
-    return _me_cache.get("username") if _me_cache else None
+    return telethon_manager.get_username()
 
 
 async def wait_for_user_message(user_id: int, timeout: int = 120) -> bool:
-    """Ожидать любое входящее сообщение от пользователя в указанный таймаут.
-
-    Args:
-        user_id (int): Идентификатор пользователя/чата, от которого ожидается сообщение.
-        timeout (int): Таймаут в секундах.
-
-    Returns:
-        bool: True если сообщение получено, False при таймауте или ошибке.
-    """
-    client = get_client()
-    if not client:
-        logger.info("wait_for_user_message: Telethon-клиент недоступен.")
-        return False
-
-    fut = asyncio.get_event_loop().create_future()
-
-    @client.on(events.NewMessage(from_users=user_id))
-    async def _handler(event):
-        if not fut.done():
-            fut.set_result(True)
-        client.remove_event_handler(_handler, events.NewMessage)
-
-    try:
-        return await asyncio.wait_for(fut, timeout=timeout)
-    except asyncio.TimeoutError:
-        try:
-            client.remove_event_handler(_handler, events.NewMessage)
-        except Exception:
-            pass
-        return False
-    except Exception:
-        logger.exception("Ошибка при ожидании сообщения пользователя через Telethon.")
-        try:
-            client.remove_event_handler(_handler, events.NewMessage)
-        except Exception:
-            pass
-        return False
+    return await telethon_manager.wait_for_user_message(user_id, timeout=timeout)
 
 
 async def send_file_via_user(
-    chat_id: int,
-    file_path: str,
-    *,
-    caption: Optional[str] = None,
-    thumb: Optional[str] = None,
-    supports_streaming: bool = False,
-    notify: Optional[Callable[[str], Awaitable[None]]] = None,
+        chat_id: int,
+        file_path: str,
+        *,
+        caption: Optional[str] = None,
+        thumb: Optional[str] = None,
+        supports_streaming: bool = False,
+        notify: NotifyCallable = None,
 ) -> None:
-    """Отправить файл через авторизованный пользовательский аккаунт Telethon.
+    return await telethon_manager.send_file_via_user(chat_id, file_path, caption=caption, thumb=thumb,
+                                                     supports_streaming=supports_streaming, notify=notify)
 
-    Args:
-        chat_id (int): Идентификатор получателя (user/chat id).
-        file_path (str): Путь к файлу для отправки.
-        caption (Optional[str]): Подпись к файлу.
-        thumb (Optional[str]): Путь к миниатюре.
-        supports_streaming (bool): Флаг для поддержки стриминга (для видео).
-        notify (Optional[Callable[[str], Awaitable[None]]]): Необязательный корутин для
-            отправки статусов (например, "загрузка", "повтор", "готово") обратно боту/пользователю.
 
-    Raises:
-        RuntimeError: Если Telethon-клиент не инициализирован.
-        Exception: Пробрасывает исключения при фатальных ошибках отправки.
-    """
-    client = get_client()
-    if not client:
-        raise RuntimeError("Telethon-клиент не инициализирован")
-    async with download_sem:
-        max_retries = 3
-        for attempt in range(1, max_retries + 1):
-            try:
-                if notify:
-                    try:
-                        await notify("⏳ Альтернативная доставка: подготовка...")
-                    except Exception:
-                        logger.debug("notify не удался (подготовка)")
-
-                try:
-                    entity = await client.get_entity(chat_id)
-                except ValueError as ve:
-                    logger.warning("get_entity не удался для %s на попытке %d: %s", str(chat_id), attempt, ve)
-                    if notify:
-                        with suppress(Exception):
-                            await notify("⚠️ Альтернативная доставка: пользователь не найден в сессии; обновляю диалоги...")
-                    try:
-                        await client.get_dialogs(limit=20)
-                    except Exception:
-                        pass
-                    entity = await client.get_entity(chat_id)
-
-                kwargs = {}
-                if caption:
-                    kwargs["caption"] = caption
-                if thumb and os.path.exists(thumb):
-                    kwargs["thumb"] = thumb
-                if supports_streaming:
-                    kwargs["supports_streaming"] = True
-
-                if notify:
-                    try:
-                        await notify("⏳ Альтернативная доставка: начинаю загрузку...")
-                    except Exception:
-                        logger.debug("notify не удался (начало загрузки)")
-
-                await asyncio.wait_for(
-                    client.send_file(entity, file_path, **kwargs),
-                    timeout=300
-                )
-
-                if notify:
-                    try:
-                        await notify("✅ Альтернативная доставка: загрузка завершена.")
-                    except Exception:
-                        logger.debug("notify не удался (завершено)")
-
-                logger.info("Отправлено через Telethon пользователю %s: %s", str(chat_id), file_path)
-                return
-            except errors.FloodWaitError as e:
-                wait = int(getattr(e, "seconds", 5))
-                logger.warning("Telethon FloodWait %s секунд; ожидаю...", wait)
-                if notify:
-                    with suppress(Exception):
-                        await notify(f"⚠️ Альтернативная доставка: ожидание из-за лимита {wait} с...")
-                await asyncio.sleep(wait + 1)
-            except asyncio.TimeoutError:
-                logger.warning("Таймаут отправки Telethon на попытке %d для %s", attempt, file_path)
-                if notify:
-                    with suppress(Exception):
-                        await notify(f"⚠️ Альтернативная доставка: загрузка превысила время (попытка {attempt}). Повтор...")
-            except Exception as e:
-                logger.exception("Попытка отправки Telethon №%d завершилась ошибкой: %s", attempt, str(e))
-                if notify:
-                    with suppress(Exception):
-                        await notify(f"⚠️ Ошибка альтернативной доставки (попытка {attempt}): {str(e)}")
-            await asyncio.sleep(1 * attempt)
-        if notify:
-            with suppress(Exception):
-                await notify("❌ Альтернативная доставка не удалась после повторных попыток.")
-        raise RuntimeError("Не удалось отправить файл через Telethon после повторных попыток")
+async def request_alternate_delivery_and_send(
+        bot,
+        chat_id: int,
+        file_path: str,
+        caption: Optional[str] = None,
+        thumb: Optional[str] = None,
+        supports_streaming: bool = False,
+        timeout: int = 120,
+) -> bool:
+    return await telethon_manager.request_alternate_delivery_and_send(bot, chat_id, file_path, caption=caption,
+                                                                      thumb=thumb,
+                                                                      supports_streaming=supports_streaming,
+                                                                      timeout=timeout)

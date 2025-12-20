@@ -8,6 +8,7 @@ from aiogram import Bot
 from aiogram.types import FSInputFile, CallbackQuery, Message
 
 from services import telethon_client
+from services.telethon_client import request_alternate_delivery_and_send, get_username
 from services.ytdlp import extract_basic_info
 from bot.dispatcher import logger
 from config import TG_MAX_UPLOAD_BYTES, TELETHON_FALLBACK_ENABLED
@@ -42,45 +43,12 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
         size = 0
 
     if size and size > TG_MAX_UPLOAD_BYTES and TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
-        username = telethon_client.get_username() or "user account"
-        try:
-            await bot.send_message(chat_id, f"⚠️ Файл большой — будет попытка альтернативной доставки. Пожалуйста, отправьте любое сообщение @{username} (альтернативному аккаунту) в течение 120 секунд.")
-        except Exception:
-            logger.exception("Не удалось уведомить пользователя о переходе на альтернативную доставку.")
-
-        got = await telethon_client.wait_for_user_message(chat_id, timeout=120)
-        if not got:
-            try:
-                await bot.send_message(chat_id, "⌛ Таймаут ожидания сообщения альтернативному аккаунту. Нельзя доставить большой файл.")
-            except Exception:
-                pass
-            return False
-
-        try:
-            await bot.send_message(chat_id, "✅ Налажено соединение. Начинаю альтернативную доставку через авторизованный аккаунт...")
-        except Exception:
-            logger.exception("Не удалось уведомить пользователя о полученном рукопожатии.")
-
-        async def _notify_to_user(text: str) -> None:
-            try:
-                await bot.send_message(chat_id, text)
-            except Exception:
-                logger.debug("Не удалось отправить уведомление пользователю: %s", text)
-
-        try:
-            await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"), notify=_notify_to_user)
-            try:
-                await bot.send_message(chat_id, "✅ Файл доставлен через альтернативный аккаунт.")
-            except Exception:
-                pass
-            return True
-        except Exception:
-            logger.exception("Альтернативная доставка через Telethon не удалась.")
-            try:
-                await bot.send_message(chat_id, "❌ Альтернативная доставка не удалась (проблемы с правами или внутренняя ошибка). Убедитесь, что вы начали диалог с альтернативным аккаунтом и не заблокировали его.")
-            except Exception:
-                pass
-            return False
+        return await request_alternate_delivery_and_send(
+            bot, chat_id, media_path,
+            caption=caption,
+            thumb=thumb_path,
+            supports_streaming=(media_arg == "video"),
+        )
 
     kwargs = {
         "chat_id": chat_id,
@@ -99,44 +67,12 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
     except Exception as bot_exc:
         logger.exception("Ошибка отправки через Bot API: %s", bot_exc)
         if TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
-            username = telethon_client.get_username() or "user account"
-            try:
-                await bot.send_message(chat_id, f"⚠️ Бот не смог отправить файл. Попытка альтернативной доставки. Пожалуйста, отправьте любое сообщение @{username} (альтернативному аккаунту) в течение 120 секунд.")
-            except Exception:
-                pass
-            got = await telethon_client.wait_for_user_message(chat_id, timeout=120)
-            if not got:
-                try:
-                    await bot.send_message(chat_id, "⌛ Таймаут ожидания вашего сообщения альтернативному аккаунту. Невозможно доставить файл.")
-                except Exception:
-                    pass
-                return False
-
-            try:
-                await bot.send_message(chat_id, "✅ Налажено соединение. Начинаю альтернативную доставку через авторизованный аккаунт...")
-            except Exception:
-                logger.exception("Не удалось уведомить пользователя о полученном рукопожатии.")
-
-            async def _notify_to_user(text: str) -> None:
-                try:
-                    await bot.send_message(chat_id, text)
-                except Exception:
-                    logger.debug("Не удалось отправить уведомление пользователю: %s", text)
-
-            try:
-                await telethon_client.send_file_via_user(chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video"), notify=_notify_to_user)
-                try:
-                    await bot.send_message(chat_id, "✅ Файл доставлен через альтернативный аккаунт.")
-                except Exception:
-                    pass
-                return True
-            except Exception:
-                logger.exception("Альтернативная доставка не удалась после ошибки Bot API.")
-                try:
-                    await bot.send_message(chat_id, "❌ Альтернативная доставка не удалась (возможно, проблемы с правами или внутренняя ошибка). Убедитесь, что вы начали диалог с альтернативным аккаунтом и не заблокировали его.")
-                except Exception:
-                    pass
-                return False
+            return await request_alternate_delivery_and_send(
+                bot, chat_id, media_path,
+                caption=caption,
+                thumb=thumb_path,
+                supports_streaming=(media_arg == "video"),
+            )
         return False
 
 
