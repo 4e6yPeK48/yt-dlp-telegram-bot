@@ -21,8 +21,6 @@ from config import (
 )
 from services.telegram import (
     send_info_card,
-    get_cb_chat_id,
-    send_by_mode,
 )
 from services.ytdlp import (
     decide_effective_mode,
@@ -161,7 +159,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         await safe_answer(cb, "⏳ Идёт другая загрузка.")
         return
 
-    chat_id = get_cb_chat_id(cb)
+    _, chat_id = get_user_and_chat(cb)
     if chat_id is None:
         await end_user_download(lock)
         await safe_answer(cb, "⚠️ Не удалось определить чат.")
@@ -323,8 +321,8 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         await safe_delete_msg(cb.message)
         await safe_edit_markup(cb.message, None)
 
-        chat_id = get_cb_chat_id(cb)
-        if chat_id is not None:
+        _, chat_id = get_user_and_chat(cb)
+        if chat_id is not None and cb.message is not None and isinstance(cb.message, Message):
             await send_info_card(
                 bot,
                 chat_id,
@@ -447,7 +445,7 @@ async def cb_history_show(cb: CallbackQuery) -> None:
             f"URL: {url}\n"
             f"Время: {time_str}"
         )
-        chat_id = get_cb_chat_id(cb)
-        if chat_id is not None:
+        _, chat_id = get_user_and_chat(cb)
+        if chat_id is not None and cb.message is not None and isinstance(cb.message, Message):
             await cb.message.answer(text)
         return

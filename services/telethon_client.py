@@ -8,7 +8,7 @@ from telethon.tl.types import InputPeerUser
 
 from config import TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION, TELETHON_FALLBACK_ENABLED, \
     TELETHON_UPLOAD_TIMEOUT
-from bot.dispatcher import download_sem, logger
+from bot.dispatcher import download_sem, logger, telethon_sem
 
 NotifyCallable = Optional[Callable[[str], Awaitable[None]]]
 
@@ -123,7 +123,7 @@ class TelethonManager:
         client = self.get_client()
         if not client:
             raise RuntimeError("Telethon-клиент не инициализирован")
-        async with download_sem:
+        async with telethon_sem:
             max_retries = 3
             for attempt in range(1, max_retries + 1):
                 try:

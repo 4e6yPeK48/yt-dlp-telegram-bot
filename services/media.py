@@ -94,7 +94,7 @@ def extract_id_from_base(base: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-async def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
+def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
     """Готовит миниатюру: 320x320 JPEG ≤ заданного лимита.
 
     Args:
@@ -104,60 +104,70 @@ async def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
     Returns:
         Optional[str]: Путь к миниатюре или None.
     """
-
-    def _proc(src_path_, out_dir_):
-        try:
-            with Image.open(src_path_) as im:
-                im = im.convert("RGB")
-                im = ImageOps.fit(im, THUMB_SIZE, method=Resampling.LANCZOS)
-                quality = 90
-                min_q = 40
-                step = 5
-                out_path = os.path.join(
-                    out_dir_,
-                    f"{os.path.splitext(os.path.basename(src_path_))[0]}_320.jpg",
+    try:
+        with Image.open(src_path) as im:
+            im = im.convert("RGB")
+            im = ImageOps.fit(im, THUMB_SIZE, method=Resampling.LANCZOS)
+            quality = 90
+            min_q = 40
+            step = 5
+            out_path = os.path.join(
+                out_dir,
+                f"{os.path.splitext(os.path.basename(src_path))[0]}_320.jpg",
+            )
+            last_size: Optional[int] = None
+            while quality >= min_q:
+                buf = io.BytesIO()
+                im.save(
+                    buf,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True,
+                    progressive=True,
+                    subsampling="4:2:0",
                 )
-                last_size: Optional[int] = None
-                while quality >= min_q:
-                    buf = io.BytesIO()
-                    im.save(
-                        buf,
-                        format="JPEG",
-                        quality=quality,
-                        optimize=True,
-                        progressive=True,
-                        subsampling="4:2:0",
+                size = buf.tell()
+                if size <= THUMB_MAX_BYTES:
+                    with open(out_path, "wb") as f:
+                        f.write(buf.getvalue())
+                    logging.getLogger("bot").info(
+                        "Подготовлена обложка %s (%dx%d, %d байт, quality=%d)",
+                        out_path,
+                        THUMB_SIZE[0],
+                        THUMB_SIZE[1],
+                        size,
+                        quality,
                     )
-                    size = buf.tell()
-                    if size <= THUMB_MAX_BYTES:
-                        with open(out_path, "wb") as f:
-                            f.write(buf.getvalue())
-                        logging.getLogger("bot").info(
-                            "Подготовлена обложка %s (%dx%d, %d байт, quality=%d)",
-                            out_path,
-                            THUMB_SIZE[0],
-                            THUMB_SIZE[1],
-                            size,
-                            quality,
-                        )
-                        return out_path
-                    last_size = size
-                    quality -= step
-                logging.getLogger("bot").warning(
-                    "Не удалось сжать обложку до %d байт, пропускаю (минимальное качество %d, размер %d байт)",
-                    THUMB_MAX_BYTES,
-                    min_q,
-                    last_size or -1,
-                )
-                return None
-        except Exception as e:
+                    return out_path
+                last_size = size
+                quality -= step
             logging.getLogger("bot").warning(
-                "Не удалось обработать обложку %s: %s", src_path_, e
+                "Не удалось сжать обложку до %d байт, пропускаю (минимальное качество %d, размер %d байт)",
+                THUMB_MAX_BYTES,
+                min_q,
+                last_size or -1,
             )
             return None
+    except Exception as e:
+        logging.getLogger("bot").warning(
+            "Не удалось обработать обложку %s: %s", src_path, e
+        )
+        return None
 
+
+async def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
+    """
+    Асинхронно готовит миниатюру: 320x320 JPEG ≤ заданного лимита.
+
+    Args:
+        src_path (str): Исходный файл.
+        out_dir (str): Директория назначения.
+
+    Returns:
+        Optional[str]: Путь к миниатюре или None.
+    """
     try:
-        return await to_thread(_proc, src_path, out_dir)
+        return await to_thread(process_thumbnail_sync, src_path, out_dir)
     except Exception:
         logging.getLogger("bot").warning("Ошибка при создании миниатюры для %s", src_path)
         return None

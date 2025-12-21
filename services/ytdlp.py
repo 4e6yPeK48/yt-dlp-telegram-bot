@@ -28,6 +28,7 @@ from services.media import (
     norm_base,
     extract_id_from_base,
     process_thumbnail,
+    process_thumbnail_sync,
 )
 
 try:
@@ -357,7 +358,7 @@ async def download_media_to_temp(
                     shutil.move(t_src, moved)
                 logger.info("Обрабатываю обложку: %s", moved)
                 try:
-                    processed = asyncio.run(process_thumbnail(moved, stable_dir))
+                    processed = process_thumbnail_sync(moved, stable_dir)
                 except Exception:
                     processed = None
 

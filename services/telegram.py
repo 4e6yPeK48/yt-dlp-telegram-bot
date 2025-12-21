@@ -176,34 +176,6 @@ async def send_by_mode(
         await send_video_files(bot, chat_id, items)
 
 
-async def try_cb_answer(cb: CallbackQuery, text: Optional[str] = None) -> None:
-    """Безопасно отправляет ответ на callback.
-
-    Args:
-        cb (CallbackQuery): Callback-запрос.
-        text (Optional[str]): Текст уведомления.
-    """
-    with suppress(Exception):
-        await cb.answer(text)
-
-
-def get_cb_chat_id(cb: CallbackQuery) -> Optional[int]:
-    """Получает chat_id из CallbackQuery.
-
-    Args:
-        cb (CallbackQuery): Объект запроса.
-
-    Returns:
-        Optional[int]: Идентификатор чата или None.
-    """
-    msg_obj = cb.message
-    if msg_obj is not None and isinstance(msg_obj, Message):
-        return msg_obj.chat.id
-    if cb.from_user is not None:
-        return cb.from_user.id
-    return None
-
-
 async def send_info_card(
     bot: Bot,
     chat_id: int,
@@ -211,7 +183,17 @@ async def send_info_card(
     user_id: int,
     reply_markup: Optional[Any] = None,
 ) -> None:
-    """Отправляет карточку найденного файла."""
+    """Отправляет карточку найденного файла.
+
+    Args:
+        bot (Bot): Экземпляр бота.
+        chat_id (int): ID чата.
+        url (str): Ссылка на источник.
+        user_id (int): ID пользователя.
+        reply_markup (Optional[Any]): Клавиатура для ответа.
+    Returns:
+        None
+    """
     caption_fallback = "🎧 Файл найден:\n\nВыберите, что скачать для этой ссылки:"
     try:
         logger.info(

@@ -48,6 +48,8 @@ async def handle_text(msg: Message, bot: Bot) -> None:
     Args:
         msg (Message): Входящее сообщение.
         bot (Bot): Экземпляр бота.
+    Returns:
+        None
     """
     raw = (msg.text or "").strip()
     intent = parse_main_button_intent(raw)
@@ -115,6 +117,13 @@ async def handle_text(msg: Message, bot: Bot) -> None:
 
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
+    """Обрабатывает полученный документ (файл cookies).
+    Args:
+        msg (Message): Входящее сообщение.
+        bot (Bot): Экземпляр бота.
+    Returns:
+        None
+    """
     user_id, _ = get_user_and_chat(msg)
     if user_id is None:
         logger.info("Получен файл, но не удалось определить пользователя.")

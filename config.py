@@ -16,7 +16,7 @@ TELETHON_FALLBACK_ENABLED: bool = os.getenv("TELETHON_FALLBACK_ENABLED", "True")
 
 
 # Search and pagination
-MAX_RESULTS: int = 25
+MAX_RESULTS: int = 10
 PAGE_SIZE: int = 5
 
 # Download limits
