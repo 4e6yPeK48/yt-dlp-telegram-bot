@@ -14,7 +14,8 @@ from config import (
     MAX_RESULTS,
     DURATION_LIMIT_SEC,
     CONCURRENT_DOWNLOADS,
-    YTDLP_THREAD_TIMEOUT, MAX_FILE_BYTES,
+    YTDLP_THREAD_TIMEOUT,
+    MAX_FILE_BYTES,
 )
 from bot.dispatcher import logger
 

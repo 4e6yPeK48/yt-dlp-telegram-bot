@@ -22,7 +22,6 @@ from config import (
 from services.telegram import (
     send_info_card,
     get_cb_chat_id,
-    try_cb_answer,
     send_by_mode,
 )
 from services.ytdlp import (
@@ -51,6 +50,12 @@ from storage.state import (
     reset_history_page,
 )
 from bot.handlers.downloads import perform_download
+from bot.helpers import (
+    safe_answer,
+    safe_edit_markup,
+    safe_delete_msg,
+    get_user_and_chat,
+)
 
 
 @router.callback_query(F.data == "settings:open")
@@ -60,9 +65,10 @@ async def cb_settings_open(cb: CallbackQuery) -> None:
     Args:
         cb (CallbackQuery): Запрос.
     """
-    await try_cb_answer(cb)
-    if cb.from_user is None:
-        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+    await safe_answer(cb)
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
     if cb.message is not None and isinstance(cb.message, Message):
         await cb.message.answer(
@@ -78,12 +84,9 @@ async def cb_settings_close(cb: CallbackQuery) -> None:
     Args:
         cb (CallbackQuery): Запрос.
     """
-    await try_cb_answer(cb)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.delete()
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=None)
+    await safe_answer(cb)
+    await safe_delete_msg(cb.message)
+    await safe_edit_markup(cb.message, None)
 
 
 @router.callback_query(F.data.startswith("setmode:"))
@@ -95,22 +98,21 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
     """
     data = cb.data or ""
     if not data.startswith("setmode:"):
-        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        await safe_answer(cb, "⚠️ Некорректные данные.")
         return
     mode = data.split(":", 1)[1]
     if mode not in {"auto", "audio", "video", "video_nosound"}:
-        await try_cb_answer(cb, "⚠️ Неизвестный режим.")
+        await safe_answer(cb, "⚠️ Неизвестный режим.")
         return
-    if cb.from_user is None:
-        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
     set_user_mode(cb.from_user.id, mode)
     logger.info("Режим пользователя %s изменён на %s", cb.from_user.id, mode)
     kb = build_settings_kb(cb.from_user.id)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await try_cb_answer(cb, "✅ Режим обновлён.")
+    await safe_edit_markup(cb.message, kb)
+    await safe_answer(cb, "✅ Режим обновлён.")
 
 
 @router.callback_query(F.data.startswith("dl:"))
@@ -124,20 +126,20 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     data = cb.data or ""
     parts = data.split(":")
     if len(parts) != 3:
-        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        await safe_answer(cb, "⚠️ Некорректные данные.")
         return
     _, mode_sel, token = parts
     if mode_sel not in {"audio", "video", "auto"}:
-        await try_cb_answer(cb, "⚠️ Неизвестный режим.")
+        await safe_answer(cb, "⚠️ Неизвестный режим.")
         return
     pend = get_pending(token)
     if not pend:
-        await try_cb_answer(cb, "ℹ️ Ссылка устарела. Отправьте её снова.")
+        await safe_answer(cb, "ℹ️ Ссылка устарела. Отправьте её снова.")
         return
     user_id = pend.get("user_id")
     url = pend.get("url")
     if not isinstance(user_id, int) or not isinstance(url, str):
-        await try_cb_answer(cb, "⚠️ Ошибка данных.")
+        await safe_answer(cb, "⚠️ Ошибка данных.")
         return
 
     with suppress(Exception):
@@ -152,28 +154,26 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         "Выбор скачивания: user=%s, mode=%s, url=%s", str(user_id), mode, url[:200]
     )
 
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=None)
+    await safe_edit_markup(cb.message, None)
 
     lock = await begin_user_download(user_id)
     if not lock:
-        await try_cb_answer(cb, "⏳ Идёт другая загрузка.")
+        await safe_answer(cb, "⏳ Идёт другая загрузка.")
         return
 
     chat_id = get_cb_chat_id(cb)
     if chat_id is None:
         await end_user_download(lock)
-        await try_cb_answer(cb, "⚠️ Не удалось определить чат.")
+        await safe_answer(cb, "⚠️ Не удалось определить чат.")
         return
 
-    await try_cb_answer(cb)
+    await safe_answer(cb)
     await bot.send_message(chat_id, "⏳ Скачиваю, подождите")
 
     cookies_path = get_user_cookies_path(user_id)
 
     async def on_cookies_required():
-        remember_cookie_request(user_id, kind="download", url=url, mode=mode)
+        remember_cookie_request(user_id, kind="download", url=url)
         await bot.send_message(
             chat_id,
             "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
@@ -211,7 +211,7 @@ async def handle_noop(cb: CallbackQuery) -> None:
     Args:
         cb (CallbackQuery): Запрос.
     """
-    await try_cb_answer(cb)
+    await safe_answer(cb)
 
 
 @router.callback_query(F.data == "cancel")
@@ -221,13 +221,12 @@ async def handle_cancel(cb: CallbackQuery) -> None:
     Args:
         cb (CallbackQuery): Запрос.
     """
-    if cb.from_user is not None:
-        pop_searches(cb.from_user.id)
-        pop_awaiting(cb.from_user.id)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=None)
-    await try_cb_answer(cb, "❌ Отменено.")
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is not None:
+        pop_searches(user_id)
+        pop_awaiting(user_id)
+    await safe_edit_markup(cb.message, None)
+    await safe_answer(cb, "❌ Отменено.")
 
 
 @router.callback_query(F.data == "page:next")
@@ -237,23 +236,22 @@ async def handle_next_page(cb: CallbackQuery) -> None:
     Args:
         cb (CallbackQuery): Запрос.
     """
-    if cb.from_user is None:
-        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
-    state = get_searches(cb.from_user.id)
+    state = get_searches(user_id)
     if not state:
-        await try_cb_answer(cb, "ℹ️ Нет активного списка.")
+        await safe_answer(cb, "ℹ️ Нет активного списка.")
         return
     results = state["results"]
     page = state.get("page", 0)
     _, pages = slice_page(results, page, PAGE_SIZE)
     state["page"] = (page + 1) % pages
-    set_searches(cb.from_user.id, state)
-    kb = build_results_kb(cb.from_user.id)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await try_cb_answer(cb)
+    set_searches(user_id, state)
+    kb = build_results_kb(user_id)
+    await safe_edit_markup(cb.message, kb)
+    await safe_answer(cb)
 
 
 @router.callback_query(F.data == "page:prev")
@@ -263,23 +261,22 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
     Args:
         cb (CallbackQuery): Запрос.
     """
-    if cb.from_user is None:
-        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
-    state = get_searches(cb.from_user.id)
+    state = get_searches(user_id)
     if not state:
-        await try_cb_answer(cb, "ℹ️ Нет активного списка.")
+        await safe_answer(cb, "ℹ️ Нет активного списка.")
         return
     results = state["results"]
     page = state.get("page", 0)
     _, pages = slice_page(results, page, PAGE_SIZE)
     state["page"] = (page - 1 + pages) % pages
-    set_searches(cb.from_user.id, state)
-    kb = build_results_kb(cb.from_user.id)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await try_cb_answer(cb)
+    set_searches(user_id, state)
+    kb = build_results_kb(user_id)
+    await safe_edit_markup(cb.message, kb)
+    await safe_answer(cb)
 
 
 @router.callback_query(F.data.startswith("pick:"))
@@ -287,25 +284,26 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
     """Начинает загрузку выбранного результата."""
     data = cb.data or ""
     if ":" not in data:
-        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        await safe_answer(cb, "⚠️ Некорректные данные.")
         return
     idx_str = data.split(":", 1)[1]
     with suppress(ValueError):
         idx = int(idx_str)
-        if cb.from_user is None:
-            await try_cb_answer(cb, "ℹ️ Не удалось определить пользователя.")
+        user_id, _ = get_user_and_chat(cb)
+        if user_id is None:
+            await safe_answer(cb, "ℹ️ Не удалось определить пользователя.")
             return
-        state = get_searches(cb.from_user.id)
+        state = get_searches(user_id)
         if not state:
-            await try_cb_answer(cb, "ℹ️ Список результатов устарел.")
+            await safe_answer(cb, "ℹ️ Список результатов устарел.")
             return
         results: List[Dict[str, Any]] = state["results"]
         if idx < 0 or idx >= len(results):
-            await try_cb_answer(cb, "⚠️ Некорректный выбор.")
+            await safe_answer(cb, "⚠️ Некорректный выбор.")
             return
         url = results[idx].get("url")
         if not url:
-            await try_cb_answer(cb, "⚠️ Нет URL для выбранного трека.")
+            await safe_answer(cb, "⚠️ Нет URL для выбранного трека.")
             return
 
         logger.info(
@@ -318,15 +316,12 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         token = save_pending_url(cb.from_user.id, url)
         kb = build_download_choice_kb(cb.from_user.id, token)
 
-        await try_cb_answer(cb)
+        await safe_answer(cb)
 
         with suppress(Exception):
             pop_searches(cb.from_user.id)
-        if cb.message is not None and isinstance(cb.message, Message):
-            with suppress(Exception):
-                await cb.message.delete()
-            with suppress(Exception):
-                await cb.message.edit_reply_markup(reply_markup=None)
+        await safe_delete_msg(cb.message)
+        await safe_edit_markup(cb.message, None)
 
         chat_id = get_cb_chat_id(cb)
         if chat_id is not None:
@@ -342,14 +337,14 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data == "history:open")
 async def cb_history_open(cb: CallbackQuery) -> None:
-    await try_cb_answer(cb)
-    if cb.from_user is None:
-        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+    await safe_answer(cb)
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
-    user_id = cb.from_user.id
     items = get_history(user_id) or []
     if not items:
-        await try_cb_answer(cb, "ℹ️ История пуста.")
+        await safe_answer(cb, "ℹ️ История пуста.")
         return
     set_history_page(user_id, 0)
     kb = build_history_kb(user_id)
@@ -362,76 +357,70 @@ async def cb_history_open(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "history:close")
 async def cb_history_close(cb: CallbackQuery) -> None:
-    await try_cb_answer(cb)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.delete()
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=None)
-    if cb.from_user is not None:
-        reset_history_page(cb.from_user.id)
+    await safe_answer(cb)
+    await safe_delete_msg(cb.message)
+    await safe_edit_markup(cb.message, None)
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is not None:
+        reset_history_page(user_id)
 
 
 @router.callback_query(F.data == "history:page:next")
 async def cb_history_next(cb: CallbackQuery) -> None:
-    await try_cb_answer(cb)
-    if cb.from_user is None:
-        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+    await safe_answer(cb)
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
-    user_id = cb.from_user.id
     items = get_history(user_id) or []
     if not items:
-        await try_cb_answer(cb, "ℹ️ Нет истории.")
+        await safe_answer(cb, "ℹ️ Нет истории.")
         return
     page = get_history_page(user_id)
     _, pages = slice_page(items, page, PAGE_SIZE)
     page = (page + 1) % pages
     set_history_page(user_id, page)
     kb = build_history_kb(user_id)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await try_cb_answer(cb)
+    await safe_edit_markup(cb.message, kb)
+    await safe_answer(cb)
 
 
 @router.callback_query(F.data == "history:page:prev")
 async def cb_history_prev(cb: CallbackQuery) -> None:
-    await try_cb_answer(cb)
-    if cb.from_user is None:
-        await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+    await safe_answer(cb)
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
-    user_id = cb.from_user.id
     items = get_history(user_id) or []
     if not items:
-        await try_cb_answer(cb, "ℹ️ Нет истории.")
+        await safe_answer(cb, "ℹ️ Нет истории.")
         return
     page = get_history_page(user_id)
     _, pages = slice_page(items, page, PAGE_SIZE)
     page = (page - 1 + pages) % pages
     set_history_page(user_id, page)
     kb = build_history_kb(user_id)
-    if cb.message is not None and isinstance(cb.message, Message):
-        with suppress(Exception):
-            await cb.message.edit_reply_markup(reply_markup=kb.as_markup())
-    await try_cb_answer(cb)
+    await safe_edit_markup(cb.message, kb)
+    await safe_answer(cb)
 
 
 @router.callback_query(F.data.startswith("history:show:"))
 async def cb_history_show(cb: CallbackQuery) -> None:
-    await try_cb_answer(cb)
+    await safe_answer(cb)
     data = cb.data or ""
     if ":" not in data:
-        await try_cb_answer(cb, "⚠️ Некорректные данные.")
+        await safe_answer(cb, "⚠️ Некорректные данные.")
         return
     with suppress(ValueError):
         idx = int(data.split(":", 2)[2])
-        if cb.from_user is None:
-            await try_cb_answer(cb, "⚠️ Не удалось определить пользователя.")
+        user_id, _ = get_user_and_chat(cb)
+        if user_id is None:
+            await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
             return
-        user_id = cb.from_user.id
         items = get_history(user_id) or []
         if idx < 0 or idx >= len(items):
-            await try_cb_answer(cb, "⚠️ Некорректный выбор.")
+            await safe_answer(cb, "⚠️ Некорректный выбор.")
             return
         entry = items[idx]
         title = entry.get("title") or "Без названия"

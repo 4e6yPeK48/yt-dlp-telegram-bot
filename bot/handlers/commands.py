@@ -4,6 +4,7 @@ from aiogram.types import Message
 from bot.keyboards import build_main_reply_kb, build_settings_kb, build_history_kb
 from bot.dispatcher import router, logger
 from storage.state import pop_searches, pop_awaiting, get_history
+from bot.helpers import get_user_and_chat
 
 
 @router.message(CommandStart())
@@ -13,7 +14,7 @@ async def cmd_start(msg: Message) -> None:
     Args:
         msg (Message): Входящее сообщение.
     """
-    uid = msg.from_user.id if msg.from_user is not None else None
+    uid, _ = get_user_and_chat(msg)
     if uid is not None:
         pop_searches(uid)
         pop_awaiting(uid)
@@ -67,7 +68,8 @@ async def cmd_settings(msg: Message) -> None:
     Args:
         msg (Message): Сообщение команды.
     """
-    if msg.from_user is None:
+    user_id, _ = get_user_and_chat(msg)
+    if user_id is None:
         await msg.answer(
             "⚙️ Настройки недоступны для этого типа сообщения.",
             reply_markup=build_main_reply_kb(),
@@ -86,13 +88,14 @@ async def cmd_history(msg: Message) -> None:
     Args:
         msg (Message): Сообщение команды.
     """
-    if msg.from_user is None:
+    user_id, _ = get_user_and_chat(msg)
+    if user_id is None:
         await msg.answer(
             "📜 История недоступна для этого типа сообщения.",
             reply_markup=build_main_reply_kb(),
         )
         return
-    uid = msg.from_user.id
+    uid = user_id
     logger.info("Открытие истории пользователем %s", str(uid))
     items = get_history(uid)
     if not items:

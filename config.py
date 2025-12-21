@@ -23,7 +23,8 @@ PAGE_SIZE: int = 5
 CONCURRENT_DOWNLOADS: int = 2
 MAX_PLAYLIST_ITEMS: int = 10
 DURATION_LIMIT_SEC: int = 30 * 60
-YTDLP_THREAD_TIMEOUT: int = 5 * 60  # seconds
+YTDLP_THREAD_TIMEOUT: int = 10 * 60  # seconds
+TELETHON_UPLOAD_TIMEOUT: int = 10 * 60  # seconds, default 10 minutes
 
 # Safety cap for single downloaded file (default 2 GiB)
 MAX_FILE_MB: int = int(os.getenv("MAX_FILE_MB", "2048"))  # megabytes
