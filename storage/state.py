@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from bot.dispatcher import logger
 from config import COOKIES_DIR, PAGE_SIZE
 
 
@@ -18,6 +19,7 @@ class StateStore:
         self._pending: Dict[str, Dict[str, Any]] = {}
         self._history: Dict[int, List[Dict[str, Any]]] = {}
         self._hist_pages: Dict[int, int] = {}
+        self._download_tasks: Dict[int, asyncio.Task] = {}
         self._cookies_dir = Path(cookies_dir)
         self._cookies_dir.mkdir(parents=True, exist_ok=True)
 
@@ -137,6 +139,29 @@ class StateStore:
 
     def reset_history_page(self, user_id: int) -> None:
         self._hist_pages.pop(user_id, None)
+
+    def set_download_task(self, user_id: int, task: asyncio.Task) -> None:
+        self._download_tasks[user_id] = task
+
+    def get_download_task(self, user_id: int) -> Optional[asyncio.Task]:
+        return self._download_tasks.get(user_id)
+
+    def pop_download_task(self, user_id: int) -> Optional[asyncio.Task]:
+        return self._download_tasks.pop(user_id, None)
+
+    def cancel_download_task(self, user_id: int) -> bool:
+        t = self._download_tasks.pop(user_id, None)
+        if t:
+            try:
+                t.cancel()
+            except Exception as e:
+                logger.exception(
+                    "Не удалось отменить задачу загрузки для пользователя %s: %s",
+                    str(user_id),
+                    e
+                )
+            return True
+        return False
 
 
 _store = StateStore()
@@ -277,54 +302,228 @@ def save_pending_url(user_id: int, url: str) -> str:
 
 
 def get_pending(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Получает сохранённый URL по токену.
+
+    Args:
+        token (str): Токен сохранённого URL.
+
+    Returns:
+        Optional[Dict[str, Any]]: Данные сохранённого URL или None.
+    """
     return _store.get_pending(token)
 
 
 def pop_pending(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Извлекает и удаляет сохранённый URL по токену.
+
+    Args:
+        token (str): Токен сохранённого URL.
+
+    Returns:
+        Optional[Dict[str, Any]]: Данные сохранённого URL или None.
+    """
     return _store.pop_pending(token)
 
 
 def get_searches(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Получает сохранённые результаты поиска пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        Optional[Dict[str, Any]]: Данные поиска или None.
+    """
     return _store.get_searches(user_id)
 
 
 def set_searches(user_id: int, payload: Dict[str, Any]) -> None:
+    """
+    Сохраняет результаты поиска пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+        payload (Dict[str, Any]): Данные поиска.
+
+    Returns:
+        None
+    """
     _store.set_searches(user_id, payload)
 
 
 def pop_searches(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Извлекает и удаляет сохранённые результаты поиска пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        Optional[Dict[str, Any]]: Данные поиска или None.
+    """
     return _store.pop_searches(user_id)
 
 
 def get_awaiting(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Получает данные ожидания cookies от пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        Optional[Dict[str, Any]]: Данные ожидания или None.
+    """
     return _store.get_awaiting(user_id)
 
 
 def pop_awaiting(user_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Извлекает и удаляет данные ожидания cookies от пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        Optional[Dict[str, Any]]: Данные ожидания или None.
+    """
     return _store.pop_awaiting(user_id)
 
 
 def add_download_history(
     user_id: int, entry: Dict[str, Any], max_items: int = 200
 ) -> None:
+    """
+    Добавляет запись в историю загрузок пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+        entry (Dict[str, Any]): Запись истории.
+        max_items (int): Максимальное число записей в истории.
+
+    Returns:
+        None
+    """
     _store.add_download_history(user_id, entry, max_items)
 
 
 def get_history(user_id: int) -> List[Dict[str, Any]]:
+    """
+    Получает историю загрузок пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        List[Dict[str, Any]]: Список записей истории.
+    """
     return _store.get_history(user_id)
 
 
 def clear_history(user_id: int) -> None:
+    """
+    Очищает историю загрузок пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        None
+    """
     _store.clear_history(user_id)
 
 
 def get_history_page(user_id: int) -> int:
+    """
+    Получает текущую страницу истории загрузок пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        int: Номер текущей страницы истории.
+    """
     return _store.get_history_page(user_id)
 
 
 def set_history_page(user_id: int, page: int) -> None:
+    """
+    Устанавливает текущую страницу истории загрузок пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+        page (int): Номер страницы.
+
+    Returns:
+        None
+    """
     _store.set_history_page(user_id, page)
 
 
 def reset_history_page(user_id: int) -> None:
+    """
+    Сбрасывает текущую страницу истории загрузок пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        None
+    """
     _store.reset_history_page(user_id)
+
+
+def set_download_task(user_id: int, task: asyncio.Task) -> None:
+    """
+    Сохраняет задачу загрузки для пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+        task (asyncio.Task): Задача загрузки.
+
+    Returns:
+        None
+    """
+    _store.set_download_task(user_id, task)
+
+
+def get_download_task(user_id: int) -> Optional[asyncio.Task]:
+    """
+    Получает задачу загрузки пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        Optional[asyncio.Task]: Задача загрузки или None.
+    """
+    return _store.get_download_task(user_id)
+
+
+def pop_download_task(user_id: int) -> Optional[asyncio.Task]:
+    """
+    Извлекает и удаляет задачу загрузки пользователя.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        Optional[asyncio.Task]: Задача загрузки или None.
+    """
+    return _store.pop_download_task(user_id)
+
+
+def cancel_download_task(user_id: int) -> bool:
+    """
+    Отменяет задачу загрузки пользователя, если она существует.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        bool: True если задача была отменена, False если не найдена.
+    """
+    return _store.cancel_download_task(user_id)

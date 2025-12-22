@@ -1,10 +1,13 @@
 from contextlib import suppress
 from typing import Any, Dict, List
+import asyncio
 
 from aiogram import Bot, F
 from aiogram.types import (
     Message,
     CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
 )
 from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
@@ -46,6 +49,9 @@ from storage.state import (
     set_history_page,
     get_history_page,
     reset_history_page,
+    set_download_task,
+    pop_download_task,
+    cancel_download_task,
 )
 from bot.handlers.downloads import perform_download
 from bot.helpers import (
@@ -62,6 +68,9 @@ async def cb_settings_open(cb: CallbackQuery) -> None:
 
     Args:
         cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
     """
     await safe_answer(cb)
     user_id, _ = get_user_and_chat(cb)
@@ -81,6 +90,9 @@ async def cb_settings_close(cb: CallbackQuery) -> None:
 
     Args:
         cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
     """
     await safe_answer(cb)
     await safe_delete_msg(cb.message)
@@ -93,6 +105,9 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
 
     Args:
         cb (CallbackQuery): Запрос с режимом.
+
+    Returns:
+        None
     """
     data = cb.data or ""
     if not data.startswith("setmode:"):
@@ -120,6 +135,9 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     Args:
         cb (CallbackQuery): Callback с данными вида dl:<mode>:<token>.
         bot (Bot): Экземпляр бота.
+
+    Returns:
+        None
     """
     data = cb.data or ""
     parts = data.split(":")
@@ -166,7 +184,11 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         return
 
     await safe_answer(cb)
-    await bot.send_message(chat_id, "⏳ Скачиваю, подождите")
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
+    )
+    await bot.send_message(chat_id, "⏳ Скачиваю, подождите", reply_markup=cancel_kb)
 
     cookies_path = get_user_cookies_path(user_id)
 
@@ -188,18 +210,26 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
             chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
         )
 
-    await perform_download(
-        bot=bot,
-        chat_id=chat_id,
-        user_id=user_id,
-        url=url,
-        mode=mode,
-        lock=lock,
-        cookies_path=cookies_path,
-        on_cookies_required=on_cookies_required,
-        on_nothing=on_nothing,
-        on_error=on_error,
-    )
+    async def _run_and_cleanup():
+        try:
+            await perform_download(
+                bot=bot,
+                chat_id=chat_id,
+                user_id=user_id,
+                url=url,
+                mode=mode,
+                lock=lock,
+                cookies_path=cookies_path,
+                on_cookies_required=on_cookies_required,
+                on_nothing=on_nothing,
+                on_error=on_error,
+            )
+        finally:
+            with suppress(Exception):
+                await pop_download_task(user_id)
+
+    task = asyncio.create_task(_run_and_cleanup())
+    set_download_task(user_id, task)
 
 
 @router.callback_query(F.data == "noop")
@@ -208,6 +238,9 @@ async def handle_noop(cb: CallbackQuery) -> None:
 
     Args:
         cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
     """
     await safe_answer(cb)
 
@@ -218,6 +251,9 @@ async def handle_cancel(cb: CallbackQuery) -> None:
 
     Args:
         cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
     """
     user_id, _ = get_user_and_chat(cb)
     if user_id is not None:
@@ -233,6 +269,9 @@ async def handle_next_page(cb: CallbackQuery) -> None:
 
     Args:
         cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
     """
     user_id, _ = get_user_and_chat(cb)
     if user_id is None:
@@ -258,6 +297,9 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
 
     Args:
         cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
     """
     user_id, _ = get_user_and_chat(cb)
     if user_id is None:
@@ -279,7 +321,15 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("pick:"))
 async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
-    """Начинает загрузку выбранного результата."""
+    """Начинает загрузку выбранного результата.
+
+    Args:
+        cb (CallbackQuery): Запрос с выбором.
+        bot (Bot): Экземпляр бота.
+
+    Returns:
+        None
+    """
     data = cb.data or ""
     if ":" not in data:
         await safe_answer(cb, "⚠️ Некорректные данные.")
@@ -335,6 +385,15 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data == "history:open")
 async def cb_history_open(cb: CallbackQuery) -> None:
+    """
+    Открывает историю загрузок пользователя.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
+    """
     await safe_answer(cb)
     user_id, _ = get_user_and_chat(cb)
     if user_id is None:
@@ -355,6 +414,15 @@ async def cb_history_open(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "history:close")
 async def cb_history_close(cb: CallbackQuery) -> None:
+    """
+    Закрывает историю загрузок пользователя.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
+    """
     await safe_answer(cb)
     await safe_delete_msg(cb.message)
     await safe_edit_markup(cb.message, None)
@@ -365,6 +433,15 @@ async def cb_history_close(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "history:page:next")
 async def cb_history_next(cb: CallbackQuery) -> None:
+    """
+    Переходит к следующей странице истории загрузок пользователя.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
+    """
     await safe_answer(cb)
     user_id, _ = get_user_and_chat(cb)
     if user_id is None:
@@ -385,6 +462,15 @@ async def cb_history_next(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "history:page:prev")
 async def cb_history_prev(cb: CallbackQuery) -> None:
+    """
+    Переходит к предыдущей странице истории загрузок пользователя.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
+    """
     await safe_answer(cb)
     user_id, _ = get_user_and_chat(cb)
     if user_id is None:
@@ -405,6 +491,15 @@ async def cb_history_prev(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("history:show:"))
 async def cb_history_show(cb: CallbackQuery) -> None:
+    """
+    Показывает детали выбранной записи из истории загрузок пользователя.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
+    """
     await safe_answer(cb)
     data = cb.data or ""
     if ":" not in data:
@@ -449,3 +544,28 @@ async def cb_history_show(cb: CallbackQuery) -> None:
         if chat_id is not None and cb.message is not None and isinstance(cb.message, Message):
             await cb.message.answer(text)
         return
+
+
+@router.callback_query(F.data == "download:cancel")
+async def cb_download_cancel(cb: CallbackQuery) -> None:
+    """
+    Отмена текущей загрузки пользователя.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
+    """
+    await safe_answer(cb)
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
+        return
+    cancelled = cancel_download_task(user_id)
+    if cancelled:
+        await safe_edit_markup(cb.message, None)
+        await safe_delete_msg(cb.message)
+        await safe_answer(cb, "❌ Загрузка отменена.")
+    else:
+        await safe_answer(cb, "ℹ️ Нет активной загрузки.")

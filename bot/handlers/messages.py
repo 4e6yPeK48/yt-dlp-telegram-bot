@@ -1,10 +1,13 @@
 import os
+import asyncio
 from asyncio import to_thread
 from contextlib import suppress
 
 from aiogram import Bot, F
 from aiogram.types import (
     Message,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
 )
 from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
@@ -34,6 +37,8 @@ from storage.state import (
     remember_search_cookie_request,
     get_user_cookies_path,
     save_pending_url,
+    set_download_task,
+    pop_download_task,
 )
 from utils.text import sanitize_query, parse_main_button_intent
 from utils.validators import is_url
@@ -48,6 +53,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
     Args:
         msg (Message): Входящее сообщение.
         bot (Bot): Экземпляр бота.
+
     Returns:
         None
     """
@@ -118,9 +124,11 @@ async def handle_text(msg: Message, bot: Bot) -> None:
 @router.message(F.document)
 async def handle_document(msg: Message, bot: Bot) -> None:
     """Обрабатывает полученный документ (файл cookies).
+
     Args:
         msg (Message): Входящее сообщение.
         bot (Bot): Экземпляр бота.
+
     Returns:
         None
     """
@@ -285,14 +293,27 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     async def on_error():
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")
 
-    await perform_download(
-        bot=bot,
-        chat_id=msg.chat.id,
-        user_id=user_id,
-        url=url,
-        mode=mode,
-        lock=lock,
-        cookies_path=cookies_path,
-        on_nothing=on_nothing,
-        on_error=on_error,
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
     )
+    await msg.answer("⏳ Скачиваю, подождите", reply_markup=cancel_kb)
+
+    async def _run_and_cleanup():
+        try:
+            await perform_download(
+                bot=bot,
+                chat_id=msg.chat.id,
+                user_id=user_id,
+                url=url,
+                mode=mode,
+                lock=lock,
+                cookies_path=cookies_path,
+                on_nothing=on_nothing,
+                on_error=on_error,
+            )
+        finally:
+            with suppress(Exception):
+                await pop_download_task(user_id)
+
+    task = asyncio.create_task(_run_and_cleanup())
+    set_download_task(user_id, task)
