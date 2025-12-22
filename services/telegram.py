@@ -65,7 +65,13 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
         await getattr(bot, method)(**kwargs)
         return True
     except Exception as bot_exc:
-        logger.exception("Ошибка отправки через Bot API: %s", bot_exc)
+        logger.exception(
+            "Ошибка отправки через Bot API (chat_id=%s, media=%s, method=%s): %s",
+            chat_id,
+            media_path,
+            method,
+            bot_exc,
+        )
         if TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
             return await request_alternate_delivery_and_send(
                 bot, chat_id, media_path,
@@ -106,8 +112,14 @@ async def send_media_files(
                 try:
                     await bot.send_message(chat_id,
                                            f"⚠️ Нельзя отправить файл '{title}'. Возможно, он слишком большой или произошла ошибка.")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.exception(
+                        "Не удалось уведомить пользователя о проблеме отправки файла (chat_id=%s, title=%s, media=%s): %s",
+                        chat_id,
+                        title,
+                        media_path,
+                        e,
+                    )
                 continue
         finally:
             if media_path:
@@ -235,7 +247,14 @@ async def send_info_card(
             parse_mode=None,
             reply_markup=reply_markup,
         )
-    except Exception:
+    except Exception as e:
+        logger.exception(
+            "Ошибка при отправке карточки информации (chat_id=%s, user=%s, url=%s): %s",
+            chat_id,
+            user_id,
+            url,
+            e,
+        )
         await bot.send_message(
             chat_id,
             caption_fallback,

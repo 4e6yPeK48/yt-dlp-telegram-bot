@@ -111,7 +111,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
             "Пришлите файл cookies.txt — повторю поиск с cookies."
         )
     except Exception as e:
-        logger.info('Ошибка поиска для "%s": %s', query, str(e))
+        logger.exception('Ошибка поиска для "%s" (user=%s): %s', query, str(uid), e)
         await msg.answer("❌ Ошибка поиска. Попробуйте позже.")
 
 
@@ -181,8 +181,8 @@ async def handle_document(msg: Message, bot: Bot) -> None:
                 cookies_path,
                 real_size,
             )
-    except Exception:
-        logger.info("Не удалось сохранить файл cookies от %s.", user_id)
+    except Exception as e:
+        logger.exception("Не удалось сохранить файл cookies от %s: %s", user_id, e)
         await msg.answer("❌ Не удалось сохранить cookies.txt.")
         return
 
@@ -236,8 +236,8 @@ async def handle_document(msg: Message, bot: Bot) -> None:
                 "Показываю результаты поиска с cookies (user=%s)", user_id
             )
             await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
-        except Exception:
-            logger.info("Ошибка поиска с cookies от %s.", user_id)
+        except Exception as e:
+            logger.exception("Ошибка поиска с cookies от %s (query=%s): %s", user_id, query, e)
             await msg.answer("❌ Не удалось выполнить поиск даже с cookies.")
         return
 

@@ -7,6 +7,8 @@ from typing import List, Optional, Set
 from PIL import Image, ImageOps
 from PIL.Image import Resampling
 
+from bot.dispatcher import logger
+
 from config import AUDIO_EXTS, VIDEO_EXTS, IMAGE_EXTS, THUMB_SIZE, THUMB_MAX_BYTES
 
 
@@ -130,7 +132,7 @@ def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
                 if size <= THUMB_MAX_BYTES:
                     with open(out_path, "wb") as f:
                         f.write(buf.getvalue())
-                    logging.getLogger("bot").info(
+                    logger.info(
                         "Подготовлена обложка %s (%dx%d, %d байт, quality=%d)",
                         out_path,
                         THUMB_SIZE[0],
@@ -141,7 +143,7 @@ def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
                     return out_path
                 last_size = size
                 quality -= step
-            logging.getLogger("bot").warning(
+            logger.warning(
                 "Не удалось сжать обложку до %d байт, пропускаю (минимальное качество %d, размер %d байт)",
                 THUMB_MAX_BYTES,
                 min_q,
@@ -149,9 +151,7 @@ def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
             )
             return None
     except Exception as e:
-        logging.getLogger("bot").warning(
-            "Не удалось обработать обложку %s: %s", src_path, e
-        )
+        logger.exception("Не удалось обработать обложку %s: %s", src_path, e)
         return None
 
 
@@ -168,6 +168,6 @@ async def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
     """
     try:
         return await to_thread(process_thumbnail_sync, src_path, out_dir)
-    except Exception:
-        logging.getLogger("bot").warning("Ошибка при создании миниатюры для %s", src_path)
+    except Exception as e:
+        logger.exception("Ошибка при создании миниатюры для %s: %s", src_path, e)
         return None

@@ -20,7 +20,7 @@ MAX_RESULTS: int = 10
 PAGE_SIZE: int = 5
 
 # Download limits
-CONCURRENT_DOWNLOADS: int = 2
+CONCURRENT_DOWNLOADS: int = 3
 MAX_PLAYLIST_ITEMS: int = 10
 DURATION_LIMIT_SEC: int = 30 * 60
 YTDLP_THREAD_TIMEOUT: int = 10 * 60  # seconds

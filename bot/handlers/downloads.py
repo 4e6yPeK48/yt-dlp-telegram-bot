@@ -58,8 +58,11 @@ async def perform_download(
         try:
             files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         except FileTooLargeError:
-            logger.warning("Загрузка прервана: файл превышает максимально допустимый размер (user=%s, mode=%s)",
-                           str(user_id), mode)
+            logger.warning(
+                "Загрузка прервана: файл превышает максимально допустимый размер (user=%s, mode=%s)",
+                str(user_id),
+                mode,
+            )
             try:
                 await bot.send_message(chat_id,
                                        "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота.")
@@ -68,8 +71,15 @@ async def perform_download(
                     username = telethon_client.get_username() or "alternate account"
                     await bot.send_message(chat_id,
                                            f"⚠️ Можно попытаться доставить через альтернативный аккаунт @{username}. Отправьте любое сообщение этому аккаунту и попробуйте снова.")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.exception(
+                    "Failed to notify user about oversized file (user=%s, chat_id=%s, url=%s, mode=%s): %s",
+                    str(user_id),
+                    str(chat_id),
+                    url,
+                    mode,
+                    e,
+                )
             return
 
         if not files:
@@ -120,13 +130,27 @@ async def perform_download(
                 chat_id,
                 "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
             )
-    except Exception:
-        logger.info("Ошибка при загрузке (user=%s, mode=%s)", str(user_id), mode)
+    except Exception as e:
+        logger.exception(
+            "Ошибка при загрузке (user=%s, mode=%s, url=%s): %s",
+            str(user_id),
+            mode,
+            url,
+            e,
+        )
         if on_error:
             await on_error()
         else:
-            await bot.send_message(
-                chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
-            )
+            try:
+                await bot.send_message(
+                    chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
+                )
+            except Exception as e2:
+                logger.exception(
+                    "Не удалось уведомить пользователя о внутренней ошибке загрузки (user=%s, chat_id=%s): %s",
+                    str(user_id),
+                    str(chat_id),
+                    e2,
+                )
     finally:
         await end_user_download(lock)

@@ -4,11 +4,15 @@ from contextlib import suppress
 from typing import Optional, Callable, Awaitable
 
 from telethon import TelegramClient, events, errors
-from telethon.tl.types import InputPeerUser
 
 from config import TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION, TELETHON_FALLBACK_ENABLED, \
-    TELETHON_UPLOAD_TIMEOUT
-from bot.dispatcher import download_sem, logger, telethon_sem
+    TELETHON_UPLOAD_TIMEOUT, CONCURRENT_DOWNLOADS
+from bot.dispatcher import logger
+
+try:
+    from bot.dispatcher import telethon_sem  # type: ignore
+except Exception:
+    telethon_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 
 NotifyCallable = Optional[Callable[[str], Awaitable[None]]]
 
@@ -99,15 +103,27 @@ class TelethonManager:
         except asyncio.TimeoutError:
             try:
                 client.remove_event_handler(_handler, events.NewMessage)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.exception(
+                    "Failed to remove Telethon event handler after timeout (user_id=%s): %s",
+                    user_id,
+                    e,
+                )
             return False
-        except Exception:
-            logger.exception("Ошибка при ожидании сообщения пользователя через Telethon.")
+        except Exception as e:
+            logger.exception(
+                "Ошибка при ожидании сообщения пользователя через Telethon (user_id=%s): %s",
+                user_id,
+                e,
+            )
             try:
                 client.remove_event_handler(_handler, events.NewMessage)
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.exception(
+                    "Failed to remove Telethon event handler after error (user_id=%s): %s",
+                    user_id,
+                    e2,
+                )
             return False
 
     async def send_file_via_user(
@@ -233,19 +249,34 @@ class TelethonManager:
                                               supports_streaming=supports_streaming, notify=_notify_to_user)
                 try:
                     await bot.send_message(chat_id, "✅ Файл доставлен через альтернативный аккаунт.")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.exception(
+                        "Не удалось уведомить пользователя об успешной альтернативной доставке (chat_id=%s, file=%s): %s",
+                        chat_id,
+                        file_path,
+                        e,
+                    )
                 return True
-            except Exception:
-                logger.exception("Альтернативная доставка через Telethon не удалась.")
+            except Exception as e:
+                logger.exception(
+                    "Альтернативная доставка через Telethon не удалась (chat_id=%s, file=%s): %s",
+                    chat_id,
+                    file_path,
+                    e,
+                )
                 try:
                     await bot.send_message(chat_id,
                                            "❌ Альтернативная доставка не удалась (проблемы с правами или внутренняя ошибка). Убедитесь, что вы начали диалог с альтернативным аккаунтом и не заблокировали его.")
-                except Exception:
-                    pass
+                except Exception as e2:
+                    logger.exception(
+                        "Не удалось уведомить пользователя о неудачной альтернативной доставке (chat_id=%s, file=%s): %s",
+                        chat_id,
+                        file_path,
+                        e2,
+                    )
                 return False
         except Exception:
-            logger.exception("Ошибка в request_alternate_delivery_and_send.")
+            logger.exception("Ошибка в request_alternate_delivery_and_send (chat_id=%s, file=%s): %s", chat_id, file_path, e)
             return False
 
 

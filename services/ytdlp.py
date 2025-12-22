@@ -190,8 +190,8 @@ async def extract_basic_info(
         entries = info.get("entries") if isinstance(info, dict) else None
         if isinstance(entries, list) and entries:
             item = entries[0]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("extract_basic_info: не удалось выбрать первую запись для %s: %s", url, e)
 
     def _pick_thumb(it: Dict[str, Any]) -> Optional[str]:
         t = it.get("thumbnail")
@@ -400,6 +400,6 @@ async def download_media_to_temp(
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
     except Exception as e:
-        logger.exception("Неожиданная ошибка в download_media_to_temp: %s", e)
+        logger.exception("Неожиданная ошибка в download_media_to_temp (url=%s): %s", url, e)
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
