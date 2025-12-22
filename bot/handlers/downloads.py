@@ -9,6 +9,7 @@ from storage.state import (
     remember_cookie_request,
     add_download_history,
 )
+from contextlib import suppress
 
 
 async def perform_download(
@@ -22,6 +23,7 @@ async def perform_download(
     on_cookies_required=None,
     on_nothing=None,
     on_error=None,
+    status_message=None,
 ):
     """Универсальная функция для скачивания и отправки медиафайлов.
 
@@ -42,6 +44,7 @@ async def perform_download(
         on_cookies_required: Корутин, вызываемый, если требуются cookies.
         on_nothing: Корутин, вызываемый, если нечего отправлять.
         on_error: Корутин, вызываемый при общей ошибке.
+        status_message: Сообщение статуса для удаления по завершении.
 
     Returns:
         None
@@ -102,6 +105,7 @@ async def perform_download(
             str(user_id),
             mode,
         )
+
         await send_by_mode(bot, chat_id, mode, files)
         logger.info(
             "Отправка завершена: отправлено %d файлов (user=%s, mode=%s)",
@@ -109,6 +113,12 @@ async def perform_download(
             str(user_id),
             mode,
         )
+
+        if status_message is not None:
+            with suppress(Exception):
+                mid = getattr(status_message, "message_id", None)
+                if mid:
+                    await bot.delete_message(chat_id, mid)
 
         try:
             add_download_history(

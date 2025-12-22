@@ -296,7 +296,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     cancel_kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
     )
-    await msg.answer("⏳ Скачиваю, подождите", reply_markup=cancel_kb)
+    status_msg = await msg.answer("⏳ Скачиваю, подождите", reply_markup=cancel_kb)
 
     async def _run_and_cleanup():
         try:
@@ -310,6 +310,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
                 cookies_path=cookies_path,
                 on_nothing=on_nothing,
                 on_error=on_error,
+                status_message=status_msg,
             )
         finally:
             with suppress(Exception):

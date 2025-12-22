@@ -188,7 +188,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     cancel_kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
     )
-    await bot.send_message(chat_id, "⏳ Скачиваю, подождите", reply_markup=cancel_kb)
+    status_msg = await bot.send_message(chat_id, "⏳ Скачиваю, подождите", reply_markup=cancel_kb)
 
     cookies_path = get_user_cookies_path(user_id)
 
@@ -223,6 +223,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
                 on_cookies_required=on_cookies_required,
                 on_nothing=on_nothing,
                 on_error=on_error,
+                status_message=status_msg,
             )
         finally:
             with suppress(Exception):
