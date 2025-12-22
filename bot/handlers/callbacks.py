@@ -564,6 +564,7 @@ async def cb_download_cancel(cb: CallbackQuery) -> None:
         await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
     cancelled = cancel_download_task(user_id)
+    logger.info("Пользователь %s запросил отмену загрузки -> result=%s", str(user_id), "cancelled" if cancelled else "no_task")
     if cancelled:
         await safe_edit_markup(cb.message, None)
         await safe_delete_msg(cb.message)

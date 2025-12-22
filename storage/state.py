@@ -152,15 +152,18 @@ class StateStore:
     def cancel_download_task(self, user_id: int) -> bool:
         t = self._download_tasks.pop(user_id, None)
         if t:
+            logger.info("Отмена запроса для user=%s: попытка отменить выполняемую задачу загрузки", str(user_id))
             try:
                 t.cancel()
+                logger.info("Задача загрузки отменена для user=%s", str(user_id))
             except Exception as e:
                 logger.exception(
                     "Не удалось отменить задачу загрузки для пользователя %s: %s",
                     str(user_id),
-                    e
+                    e,
                 )
             return True
+        logger.info("Отмена запроса для user=%s: активных задач загрузки не найдено", str(user_id))
         return False
 
 

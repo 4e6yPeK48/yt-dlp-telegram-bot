@@ -1,4 +1,6 @@
 # File: final_project/bot/handlers/downloads.py
+from asyncio import CancelledError
+
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import logger, download_sem
@@ -140,6 +142,14 @@ async def perform_download(
                 chat_id,
                 "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
             )
+    except CancelledError:
+        logger.info(
+            "Загрузка отменена (user=%s, mode=%s, url=%s)",
+            str(user_id),
+            mode,
+            (url or "")[:200],
+        )
+        raise
     except Exception as e:
         logger.exception(
             "Ошибка при загрузке (user=%s, mode=%s, url=%s): %s",
