@@ -27,7 +27,6 @@ from services.media import (
     find_video_files,
     norm_base,
     extract_id_from_base,
-    process_thumbnail,
     process_thumbnail_sync,
 )
 
@@ -184,6 +183,7 @@ async def extract_basic_info(
     }
     if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
         ydl_opts["cookiefile"] = cookies_path
+
     info = await ytdlp_extract(url, ydl_opts, download=False)
     item = info
     try:
@@ -251,142 +251,155 @@ async def download_media_to_temp(
         FileTooLargeError: Если скачанный файл превышает MAX_FILE_BYTES.
     """
     tmpdir = tempfile.mkdtemp(prefix="dl_")
-    if mode == "audio":
-        postprocessors = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            },
-            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
-            {"key": "EmbedThumbnail"},
-            {"key": "FFmpegMetadata"},
-        ]
-        ydl_format = "bestaudio/best"
-        extra: Dict[str, Any] = {}
-    elif mode == "video":
-        postprocessors = [
-            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
-            {"key": "FFmpegMetadata"},
-        ]
-        ydl_format = "bv*+ba/b"
-        extra = {"merge_output_format": "mp4", "recode_video": "mp4"}
-    else:
-        postprocessors = [
-            {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
-            {"key": "FFmpegMetadata"},
-        ]
-        ydl_format = "bestvideo/best"
-        extra = {"recode_video": "mp4"}
+    try:
+        if mode == "audio":
+            postprocessors = [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                 },
+                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+                {"key": "EmbedThumbnail"},
+                {"key": "FFmpegMetadata"},
+            ]
+            ydl_format = "bestaudio/best"
+            extra: Dict[str, Any] = {}
+        elif mode == "video":
+            postprocessors = [
+                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+                {"key": "FFmpegMetadata"},
+            ]
+            ydl_format = "bv*+ba/b"
+            extra = {"merge_output_format": "mp4", "recode_video": "mp4"}
+        else:
+            postprocessors = [
+                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+                {"key": "FFmpegMetadata"},
+            ]
+            ydl_format = "bestvideo/best"
+            extra = {"recode_video": "mp4"}
 
-    ydl_opts: Dict[str, Any] = {
-        "quiet": True,
-        "format": ydl_format,
-        "outtmpl": os.path.join(tmpdir, "%(title)s [%(id)s].%(ext)s"),
-        "noplaylist": False,
-        "postprocessors": postprocessors,
-        "writethumbnail": True,
-        "write_all_thumbnails": True,
-        "convert_thumbnails": "jpg",
-        "prefer_ffmpeg": True,
-        "nocheckcertificate": True,
-        "logger": logging.getLogger("yt_dlp"),
-        "playlist_items": f"1-{MAX_PLAYLIST_ITEMS}",
-        "max_downloads": MAX_PLAYLIST_ITEMS,
-        "match_filter": make_duration_match_filter(DURATION_LIMIT_SEC),
-        **extra,
-    }
-    if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
-        ydl_opts["cookiefile"] = cookies_path
+        ydl_opts: Dict[str, Any] = {
+            "quiet": True,
+            "format": ydl_format,
+            "outtmpl": os.path.join(tmpdir, "%(title)s [%(id)s].%(ext)s"),
+            "noplaylist": False,
+            "postprocessors": postprocessors,
+            "writethumbnail": True,
+            "write_all_thumbnails": True,
+            "convert_thumbnails": "jpg",
+            "prefer_ffmpeg": True,
+            "nocheckcertificate": True,
+            "logger": logging.getLogger("yt_dlp"),
+            "playlist_items": f"1-{MAX_PLAYLIST_ITEMS}",
+            "max_downloads": MAX_PLAYLIST_ITEMS,
+            "match_filter": make_duration_match_filter(DURATION_LIMIT_SEC),
+            **extra,
+        }
+        if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
+            ydl_opts["cookiefile"] = cookies_path
 
-    async with download_sem:
-        try:
+        async with download_sem:
             logger.info("Начало загрузки (%s): %s", mode, url)
             await ytdlp_extract(url, ydl_opts, download=True)
-        except DownloadError as e:
-            raise e
-        except Exception as e:
-            raise e
 
-    def _sync_postprocess(tmpdir_: str, mode_: str) -> List[Tuple[str, Optional[str]]]:
-        if mode_ == "audio":
-            media_files = find_audio_files(tmpdir_)
-        else:
-            media_files = find_video_files(tmpdir_)
-        image_files = find_image_files(tmpdir_)
-        logger.info(
-            "Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files)
-        )
-        if not media_files:
-            shutil.rmtree(tmpdir_, ignore_errors=True)
-            return []
-
-        stable_dir = tempfile.mkdtemp(prefix="out_")
-
-        images_by_base: Dict[str, List[str]] = {}
-        for img in image_files:
-            clean_base = norm_base(img)
-            images_by_base.setdefault(clean_base, []).append(img)
-
-        items_: List[Tuple[str, Optional[str]]] = []
-        for m in media_files:
-            m_base = norm_base(m)
-            m_dst = os.path.join(stable_dir, os.path.basename(m))
-            with suppress(Exception):
-                shutil.move(m, m_dst)
-
-            possible_imgs = list(images_by_base.get(m_base, []))
-            if not possible_imgs:
-                vid = extract_id_from_base(m_base)
-                if vid:
-                    needle = f"[{vid}]"
-                    for img in image_files:
-                        name_wo_hash = os.path.basename(img).split("#", 1)[0]
-                        if needle in name_wo_hash:
-                            possible_imgs.append(img)
-
-            t_src: Optional[str] = None
-            if possible_imgs:
-                with suppress(Exception):
-                    possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
-                t_src = possible_imgs[0]
-
-            t_dst: Optional[str] = None
-            if t_src and os.path.exists(t_src):
-                moved = os.path.join(stable_dir, os.path.basename(t_src))
-                with suppress(Exception):
-                    shutil.move(t_src, moved)
-                logger.info("Обрабатываю обложку: %s", moved)
-                try:
-                    processed = process_thumbnail_sync(moved, stable_dir)
-                except Exception:
-                    processed = None
-
-                if os.path.exists(moved) and (not processed or processed != moved):
-                    with suppress(Exception):
-                        os.remove(moved)
-                if processed and os.path.exists(processed):
-                    t_dst = processed
-
+        def _sync_postprocess(tmpdir_: str, mode_: str) -> List[Tuple[str, Optional[str]]]:
+            stable_dir = None
             try:
-                size = os.path.getsize(m_dst)
-            except Exception:
-                size = 0
-            if MAX_FILE_BYTES and size and size > MAX_FILE_BYTES:
-                shutil.rmtree(stable_dir, ignore_errors=True)
-                shutil.rmtree(tmpdir_, ignore_errors=True)
-                logger.error(
-                    "Скачанный файл превышает максимально допустимый размер %d bytes: %s (%d bytes)",
-                    MAX_FILE_BYTES,
-                    m_dst,
-                    size,
+                if mode_ == "audio":
+                    media_files = find_audio_files(tmpdir_)
+                else:
+                    media_files = find_video_files(tmpdir_)
+                image_files = find_image_files(tmpdir_)
+                logger.info(
+                    "Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files)
                 )
-                raise FileTooLargeError(f"File too large: {size} bytes (limit {MAX_FILE_BYTES})")
+                if not media_files:
+                    shutil.rmtree(tmpdir_, ignore_errors=True)
+                    return []
 
-            items_.append((m_dst, t_dst))
+                stable_dir = tempfile.mkdtemp(prefix="out_")
 
-        shutil.rmtree(tmpdir_, ignore_errors=True)
-        return items_
+                images_by_base: Dict[str, List[str]] = {}
+                for img in image_files:
+                    clean_base = norm_base(img)
+                    images_by_base.setdefault(clean_base, []).append(img)
 
-    items = await asyncio.to_thread(_sync_postprocess, tmpdir, mode)
-    return items
+                items_: List[Tuple[str, Optional[str]]] = []
+                for m in media_files:
+                    m_base = norm_base(m)
+                    m_dst = os.path.join(stable_dir, os.path.basename(m))
+                    with suppress(Exception):
+                        shutil.move(m, m_dst)
+
+                    possible_imgs = list(images_by_base.get(m_base, []))
+                    if not possible_imgs:
+                        vid = extract_id_from_base(m_base)
+                        if vid:
+                            needle = f"[{vid}]"
+                            for img in image_files:
+                                name_wo_hash = os.path.basename(img).split("#", 1)[0]
+                                if needle in name_wo_hash:
+                                    possible_imgs.append(img)
+
+                    t_src: Optional[str] = None
+                    if possible_imgs:
+                        with suppress(Exception):
+                            possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
+                        t_src = possible_imgs[0]
+
+                    t_dst: Optional[str] = None
+                    if t_src and os.path.exists(t_src):
+                        moved = os.path.join(stable_dir, os.path.basename(t_src))
+                        with suppress(Exception):
+                            shutil.move(t_src, moved)
+                        logger.info("Обрабатываю обложку: %s", moved)
+                        try:
+                            processed = process_thumbnail_sync(moved, stable_dir)
+                        except Exception:
+                            processed = None
+
+                        if os.path.exists(moved) and (not processed or processed != moved):
+                            with suppress(Exception):
+                                os.remove(moved)
+                        if processed and os.path.exists(processed):
+                            t_dst = processed
+
+                    try:
+                        size = os.path.getsize(m_dst)
+                    except Exception:
+                        size = 0
+                    if MAX_FILE_BYTES and size and size > MAX_FILE_BYTES:
+                        shutil.rmtree(stable_dir, ignore_errors=True)
+                        shutil.rmtree(tmpdir_, ignore_errors=True)
+                        logger.error(
+                            "Скачанный файл превышает максимально допустимый размер %d bytes: %s (%d bytes)",
+                            MAX_FILE_BYTES,
+                            m_dst,
+                            size,
+                        )
+                        raise FileTooLargeError(f"File too large: {size} bytes (limit {MAX_FILE_BYTES})")
+
+                    items_.append((m_dst, t_dst))
+
+                shutil.rmtree(tmpdir_, ignore_errors=True)
+                return items_
+            except Exception:
+                if stable_dir:
+                    shutil.rmtree(stable_dir, ignore_errors=True)
+                shutil.rmtree(tmpdir_, ignore_errors=True)
+                raise
+
+        items = await asyncio.to_thread(_sync_postprocess, tmpdir, mode)
+        return items
+    except DownloadError:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+    except FileTooLargeError:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+    except Exception as e:
+        logger.exception("Неожиданная ошибка в download_media_to_temp: %s", e)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise

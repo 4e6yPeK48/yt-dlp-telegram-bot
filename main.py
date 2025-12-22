@@ -21,15 +21,29 @@ async def main() -> None:
         RuntimeError: Если отсутствует BOT_TOKEN.
     """
     setup_logging()
+
     if not BOT_TOKEN:
         raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
 
     if TELETHON_FALLBACK_ENABLED:
         try:
             await telethon_client.ensure_client_started()
+            telethon_ready = bool(telethon_client.get_client())
+            if telethon_ready:
+                logger.info("Telethon-fallback успешно инициализирован")
+            else:
+                logger.warning("Telethon-fallback включён, но клиент не инициализирован")
+        except RuntimeError as e:
+            logger.warning(
+                "Telethon-fallback включён, но не настроен: %s. "
+                "Запустите `python scripts/telethon_login.py` локально, чтобы авторизовать или отключить резервный вариант. "
+                "Продолжаю без Telethon.",
+                e)
         except Exception as e:
-            logger.error("Включён Telethon-fallback, но не удалось запустить клиент: %s", e)
-            raise
+            logger.exception(
+                "Ошибка при инициализации Telethon-fallback: %s. Продолжаю без Telethon.",
+                e,
+            )
     else:
         logger.warning("Продолжаю без Telethon-fallback: %s")
 
@@ -41,10 +55,12 @@ async def main() -> None:
     try:
         await dp.start_polling(bot)
     finally:
+        logger.info("Остановка поллинга: завершаю работу бота")
         try:
             await telethon_client.disconnect_client()
-        except Exception:
-            logger.exception("Ошибка при отключении Telethon-клиента при завершении")
+        except Exception as e:
+            logger.exception("Ошибка при отключении Telethon-клиента при завершении работы: %s", e)
+        logger.info("Бот завершил работу")
 
 
 if __name__ == "__main__":
