@@ -159,9 +159,6 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         await safe_answer(cb, "⚠️ Ошибка данных.")
         return
 
-    with suppress(Exception):
-        pop_pending(token)
-
     if mode_sel == "auto":
         mode = decide_effective_mode(get_user_mode(user_id), url)
     else:
@@ -198,7 +195,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
                 [
                     InlineKeyboardButton(
                         text="🍪 Пришлю cookies.txt",
-                        callback_data="noop",
+                        callback_data="ask_cookies",
                     ),
                     InlineKeyboardButton(
                         text="⚙️ Попытка с серверными cookies",
@@ -246,7 +243,35 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     set_download_task(user_id, task)
 
 
-@router.callback_query(F.data.startswith("download:server:"))
+@router.callback_query(F.data == "ask_cookies")
+async def cb_ask_cookies(cb: CallbackQuery) -> None:
+    """
+    Запрашивает у пользователя файл cookies.txt.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+
+    Returns:
+        None
+    """
+    await safe_answer(cb)
+    user_id, _ = get_user_and_chat(cb)
+    if user_id is None:
+        return
+    pending = get_awaiting(user_id)
+    if not pending:
+        return
+    if cb.message is not None and isinstance(cb.message, Message):
+        try:
+            await cb.message.answer(
+                "🍪 Пришлите файл `cookies.txt` в формате Netscape как документ (макс. 5 МБ). "
+                "После получения бот автоматически повторит операцию."
+            )
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data.startswith("download:server:"))  # ПОКА НЕ РАБОТАЕТ
 async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
     """
     Начинает загрузку с использованием серверных cookies.
