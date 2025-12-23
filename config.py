@@ -32,6 +32,7 @@ MAX_FILE_BYTES: int = MAX_FILE_MB * 1024 * 1024
 
 # Query limits
 MAX_QUERY_LEN: int = 120
+TRUNC_URL = 200
 
 # File extensions
 AUDIO_EXTS: Set[str] = {".mp3", ".m4a", ".opus", ".webm", ".ogg", ".flac", ".wav"}

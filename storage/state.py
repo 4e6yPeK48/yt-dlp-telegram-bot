@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from bot.dispatcher import logger
+from utils.log_helpers import log_info, log_exception, log_warning
 from config import COOKIES_DIR, PAGE_SIZE
 
 
@@ -152,18 +153,19 @@ class StateStore:
     def cancel_download_task(self, user_id: int) -> bool:
         t = self._download_tasks.pop(user_id, None)
         if t:
-            logger.info("Отмена запроса для user=%s: попытка отменить выполняемую задачу загрузки", str(user_id))
+            log_info(logger, "Отмена запроса: попытка отменить выполняемую задачу загрузки", user_id=user_id)
             try:
                 t.cancel()
-                logger.info("Задача загрузки отменена для user=%s", str(user_id))
+                log_info(logger, "Задача загрузки отменена", user_id=user_id)
             except Exception as e:
-                logger.exception(
-                    "Не удалось отменить задачу загрузки для пользователя %s: %s",
-                    str(user_id),
-                    e,
+                log_exception(
+                    logger,
+                    "Не удалось отменить задачу загрузки для пользователя",
+                    user_id=user_id,
+                    extra={"err": str(e)},
                 )
             return True
-        logger.info("Отмена запроса для user=%s: активных задач загрузки не найдено", str(user_id))
+        log_info(logger, "Отмена запроса: активных задач загрузки не найдено", user_id=user_id)
         return False
 
 

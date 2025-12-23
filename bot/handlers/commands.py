@@ -5,6 +5,7 @@ from bot.keyboards import build_main_reply_kb, build_settings_kb, build_history_
 from bot.dispatcher import router, logger
 from storage.state import pop_searches, pop_awaiting, get_history
 from bot.helpers import get_user_and_chat
+from utils.log_helpers import log_info
 
 
 @router.message(CommandStart())
@@ -18,7 +19,7 @@ async def cmd_start(msg: Message) -> None:
     if uid is not None:
         pop_searches(uid)
         pop_awaiting(uid)
-    logger.info("Команда /start от пользователя %s", str(uid))
+    log_info(logger, "Команда /start", user_id=uid)
     await msg.answer(
         "✨ Отправьте ссылку — скачаю по вашим настройкам.\n"
         "📝 Или отправьте название — покажу список из 25 результатов.\n"
@@ -39,10 +40,8 @@ async def cmd_help(msg: Message) -> None:
     Args:
         msg (Message): Сообщение команды.
     """
-    logger.info(
-        "Команда /help от пользователя %s",
-        str(msg.from_user.id if msg.from_user else None),
-    )
+    user_id = msg.from_user.id if msg.from_user else None
+    log_info(logger, "Команда /help", user_id=user_id)
     text = (
         "ℹ️ Что умеет бот:\n"
         "1. 🔗 Отправьте ссылку — скачивание пойдёт в выбранном режиме.\n"
@@ -75,11 +74,12 @@ async def cmd_settings(msg: Message) -> None:
             reply_markup=build_main_reply_kb(),
         )
         return
-    logger.info("Открытие настроек пользователем %s", str(msg.from_user.id))
+    log_info(logger, "Открытие настроек", user_id=msg.from_user.id)
     await msg.answer(
         "⚙️ Настройки типа скачивания:",
         reply_markup=build_settings_kb(msg.from_user.id).as_markup(),
     )
+
 
 @router.message(Command("history"))
 async def cmd_history(msg: Message) -> None:
@@ -96,7 +96,7 @@ async def cmd_history(msg: Message) -> None:
         )
         return
     uid = user_id
-    logger.info("Открытие истории пользователем %s", str(uid))
+    log_info(logger, "Открытие истории", user_id=uid)
     items = get_history(uid)
     if not items:
         await msg.answer("ℹ️ История пуста.", reply_markup=build_main_reply_kb())

@@ -8,6 +8,7 @@ from PIL import Image, ImageOps
 from PIL.Image import Resampling
 
 from bot.dispatcher import logger
+from utils.log_helpers import log_info, log_warning, log_exception
 
 from config import AUDIO_EXTS, VIDEO_EXTS, IMAGE_EXTS, THUMB_SIZE, THUMB_MAX_BYTES
 
@@ -132,26 +133,26 @@ def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
                 if size <= THUMB_MAX_BYTES:
                     with open(out_path, "wb") as f:
                         f.write(buf.getvalue())
-                    logger.info(
-                        "Подготовлена обложка %s (%dx%d, %d байт, quality=%d)",
-                        out_path,
-                        THUMB_SIZE[0],
-                        THUMB_SIZE[1],
-                        size,
-                        quality,
+                    log_info(
+                        logger,
+                        f"Подготовлена обложка",
+                        extra={"path": out_path, "width": THUMB_SIZE[0], "height": THUMB_SIZE[1], "size": size, "quality": quality},
                     )
                     return out_path
                 last_size = size
                 quality -= step
-            logger.warning(
-                "Не удалось сжать обложку до %d байт, пропускаю (минимальное качество %d, размер %d байт)",
-                THUMB_MAX_BYTES,
-                min_q,
-                last_size or -1,
+            log_warning(
+                logger,
+                f"Не удалось сжать обложку, пропускаю",
+                extra={"limit": THUMB_MAX_BYTES, "min_q": min_q, "last_size": last_size or -1},
             )
             return None
     except Exception as e:
-        logger.exception("Не удалось обработать обложку %s: %s", src_path, e)
+        log_exception(
+            logger,
+            f"Не удалось обработать обложку",
+            extra={"path": src_path, "err": str(e)},
+        )
         return None
 
 
@@ -169,5 +170,9 @@ async def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
     try:
         return await to_thread(process_thumbnail_sync, src_path, out_dir)
     except Exception as e:
-        logger.exception("Ошибка при создании миниатюры для %s: %s", src_path, e)
+        log_exception(
+            logger,
+            f"Ошибка при создании миниатюры",
+            extra={"path": src_path, "err": str(e)},
+        )
         return None

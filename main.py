@@ -6,6 +6,7 @@ from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import dp, logger
+from utils.log_helpers import log_info, log_warning, log_exception
 from config import (
     BOT_TOKEN, TELETHON_FALLBACK_ENABLED,
 )
@@ -30,37 +31,38 @@ async def main() -> None:
             await telethon_client.ensure_client_started()
             telethon_ready = bool(telethon_client.get_client())
             if telethon_ready:
-                logger.info("Telethon-fallback успешно инициализирован")
+                log_info(logger, "Telethon-fallback успешно инициализирован")
             else:
-                logger.warning("Telethon-fallback включён, но клиент не инициализирован")
+                log_warning(logger, "Telethon-fallback включён, но клиент не инициализирован")
         except RuntimeError as e:
-            logger.warning(
-                "Telethon-fallback включён, но не настроен: %s. "
-                "Запустите `python scripts/telethon_login.py` локально, чтобы авторизовать или отключить резервный вариант. "
-                "Продолжаю без Telethon.",
-                e)
+            log_warning(
+                logger,
+                "Telethon-fallback включён, но не настроен. Запустите `python scripts/telethon_login.py` локально, чтобы авторизовать или отключить резервный вариант. Продолжаю без Telethon.",
+                extra={"err": str(e)},
+            )
         except Exception as e:
-            logger.exception(
-                "Ошибка при инициализации Telethon-fallback: %s. Продолжаю без Telethon.",
-                e,
+            log_exception(
+                logger,
+                "Ошибка при инициализации Telethon-fallback. Продолжаю без Telethon.",
+                extra={"err": str(e)},
             )
     else:
-        logger.warning("Продолжаю без Telethon-fallback: %s")
+        log_warning(logger, "Продолжаю без Telethon-fallback")
 
     bot = Bot(
         BOT_TOKEN,
         default=DefaultBotProperties(parse_mode="HTML"),
     )
-    logger.info("Старт поллинга")
+    log_info(logger, "Старт поллинга")
     try:
         await dp.start_polling(bot)
     finally:
-        logger.info("Остановка поллинга: завершаю работу бота")
+        log_info(logger, "Остановка поллинга: завершаю работу бота")
         try:
             await telethon_client.disconnect_client()
         except Exception as e:
-            logger.exception("Ошибка при отключении Telethon-клиента при завершении работы: %s", e)
-        logger.info("Бот завершил работу")
+            log_exception(logger, "Ошибка при отключении Telethon-клиента при завершении работы", extra={"err": str(e)})
+        log_info(logger, "Бот завершил работу")
 
 
 if __name__ == "__main__":

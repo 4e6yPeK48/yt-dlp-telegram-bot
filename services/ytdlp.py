@@ -18,6 +18,7 @@ from config import (
     MAX_FILE_BYTES,
 )
 from bot.dispatcher import logger
+from utils.log_helpers import log_debug, log_info, log_error, log_exception
 
 from utils.validators import is_audio_platform
 
@@ -95,9 +96,7 @@ async def ytdlp_extract(
         Exception: При других ошибках выполнения yt-dlp.
     """
 
-    logger.debug(
-        "ytdlp_extract: запуск для %s (download=%s)", url_or_query[:200], download
-    )
+    log_debug(logger, "ytdlp_extract: запуск", url=url_or_query, extra={"download": download})
 
     def _run() -> Dict[str, Any]:
         with YoutubeDL(ydl_opts) as ydl:
@@ -107,17 +106,23 @@ async def ytdlp_extract(
         result = await asyncio.wait_for(
             asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT
         )
-        logger.debug("ytdlp_extract: завершено для %s", url_or_query[:200])
+        log_debug(logger, "ytdlp_extract: завершено", url=url_or_query)
         return result
     except asyncio.TimeoutError:
-        logger.error(
-            "ytdlp_extract: таймаут через %d секунд для %s",
-            YTDLP_THREAD_TIMEOUT,
-            url_or_query[:200],
+        log_error(
+            logger,
+            f"ytdlp_extract: таймаут",
+            url=url_or_query,
+            extra={"timeout_sec": YTDLP_THREAD_TIMEOUT},
         )
         raise
     except Exception as e:
-        logger.exception("ytdlp_extract: исключение для %s: %s", url_or_query[:200], e)
+        log_exception(
+            logger,
+            f"ytdlp_extract: исключение",
+            url=url_or_query,
+            extra={"err": str(e)},
+        )
         raise
 
 
@@ -191,7 +196,12 @@ async def extract_basic_info(
         if isinstance(entries, list) and entries:
             item = entries[0]
     except Exception as e:
-        logger.debug("extract_basic_info: не удалось выбрать первую запись для %s: %s", url, e)
+        log_debug(
+            logger,
+            f"extract_basic_info: не удалось выбрать первую запись",
+            url=url,
+            extra={"err": str(e)},
+        )
 
     def _pick_thumb(it: Dict[str, Any]) -> Optional[str]:
         t = it.get("thumbnail")
@@ -301,7 +311,12 @@ async def download_media_to_temp(
             ydl_opts["cookiefile"] = cookies_path
 
         async with download_sem:
-            logger.info("Начало загрузки (%s): %s", mode, url)
+            log_info(
+                logger,
+                f"Начало загрузки",
+                mode=mode,
+                url=url,
+            )
             await ytdlp_extract(url, ydl_opts, download=True)
 
         def _sync_postprocess(tmpdir_: str, mode_: str) -> List[Tuple[str, Optional[str]]]:
@@ -312,8 +327,12 @@ async def download_media_to_temp(
                 else:
                     media_files = find_video_files(tmpdir_)
                 image_files = find_image_files(tmpdir_)
-                logger.info(
-                    "Файлов найдено (media=%d, images=%d)", len(media_files), len(image_files)
+                log_info(
+                    logger,
+                    f"Файлов найдено",
+                    mode=mode_,
+                    url=url,
+                    extra={"media_count": len(media_files), "image_count": len(image_files)},
                 )
                 if not media_files:
                     shutil.rmtree(tmpdir_, ignore_errors=True)
@@ -354,7 +373,12 @@ async def download_media_to_temp(
                         moved = os.path.join(stable_dir, os.path.basename(t_src))
                         with suppress(Exception):
                             shutil.move(t_src, moved)
-                        logger.info("Обрабатываю обложку: %s", moved)
+                        log_info(
+                            logger,
+                            f"Обрабатываю обложку",
+                            mode=mode_,
+                            extra={"thumb": moved},
+                        )
                         try:
                             processed = process_thumbnail_sync(moved, stable_dir)
                         except Exception:
@@ -373,11 +397,11 @@ async def download_media_to_temp(
                     if MAX_FILE_BYTES and size and size > MAX_FILE_BYTES:
                         shutil.rmtree(stable_dir, ignore_errors=True)
                         shutil.rmtree(tmpdir_, ignore_errors=True)
-                        logger.error(
-                            "Скачанный файл превышает максимально допустимый размер %d bytes: %s (%d bytes)",
-                            MAX_FILE_BYTES,
-                            m_dst,
-                            size,
+                        log_error(
+                            logger,
+                            f"Скачанный файл превышает максимально допустимый размер",
+                            mode=mode_,
+                            extra={"size": size, "path": m_dst, "limit": MAX_FILE_BYTES},
                         )
                         raise FileTooLargeError(f"File too large: {size} bytes (limit {MAX_FILE_BYTES})")
 
@@ -400,6 +424,11 @@ async def download_media_to_temp(
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
     except Exception as e:
-        logger.exception("Неожиданная ошибка в download_media_to_temp (url=%s): %s", url, e)
+        log_exception(
+            logger,
+            f"Неожиданная ошибка в download_media_to_temp",
+            url=url,
+            extra={"err": str(e)},
+        )
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise

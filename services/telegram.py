@@ -11,6 +11,7 @@ from services import telethon_client
 from services.telethon_client import request_alternate_delivery_and_send, get_username
 from services.ytdlp import extract_basic_info
 from bot.dispatcher import logger
+from utils.log_helpers import log_info, log_exception
 from config import TG_MAX_UPLOAD_BYTES, TELETHON_FALLBACK_ENABLED
 from storage.state import get_user_cookies_path
 from utils.text import make_caption, format_duration_hms, make_multiline_caption
@@ -65,12 +66,11 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
         await getattr(bot, method)(**kwargs)
         return True
     except Exception as bot_exc:
-        logger.exception(
-            "Ошибка отправки через Bot API (chat_id=%s, media=%s, method=%s): %s",
-            chat_id,
-            media_path,
-            method,
-            bot_exc,
+        log_exception(
+            logger,
+            f"Ошибка отправки через Bot API",
+            chat_id=chat_id,
+            extra={"media": media_path, "method": method, "err": str(bot_exc)},
         )
         if TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
             return await request_alternate_delivery_and_send(
@@ -113,12 +113,11 @@ async def send_media_files(
                     await bot.send_message(chat_id,
                                            f"⚠️ Нельзя отправить файл '{title}'. Возможно, он слишком большой или произошла ошибка.")
                 except Exception as e:
-                    logger.exception(
-                        "Не удалось уведомить пользователя о проблеме отправки файла (chat_id=%s, title=%s, media=%s): %s",
-                        chat_id,
-                        title,
-                        media_path,
-                        e,
+                    log_exception(
+                        logger,
+                        f"Не удалось уведомить пользователя о проблеме отправки файла",
+                        chat_id=chat_id,
+                        extra={"title": title, "media": media_path, "err": str(e)},
                     )
                 continue
         finally:
@@ -208,8 +207,11 @@ async def send_info_card(
     """
     caption_fallback = "🎧 Файл найден:\n\nВыберите, что скачать для этой ссылки:"
     try:
-        logger.info(
-            "Показываю карточку информации (user=%s, url=%s)", str(user_id), url[:200]
+        log_info(
+            logger,
+            f"Показываю карточку информации",
+            user_id=user_id,
+            url=url,
         )
         info = await extract_basic_info(
             url, cookies_path=get_user_cookies_path(user_id)
@@ -248,12 +250,13 @@ async def send_info_card(
             reply_markup=reply_markup,
         )
     except Exception as e:
-        logger.exception(
-            "Ошибка при отправке карточки информации (chat_id=%s, user=%s, url=%s): %s",
-            chat_id,
-            user_id,
-            url,
-            e,
+        log_exception(
+            logger,
+            f"Ошибка при отправке карточки информации",
+            chat_id=chat_id,
+            user_id=user_id,
+            url=url,
+            extra={"err": str(e)},
         )
         await bot.send_message(
             chat_id,

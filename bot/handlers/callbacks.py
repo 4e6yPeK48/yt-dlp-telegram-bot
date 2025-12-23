@@ -60,6 +60,7 @@ from bot.helpers import (
     safe_delete_msg,
     get_user_and_chat,
 )
+from utils.log_helpers import log_info
 
 
 @router.callback_query(F.data == "settings:open")
@@ -122,7 +123,7 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
         await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
     set_user_mode(cb.from_user.id, mode)
-    logger.info("Режим пользователя %s изменён на %s", cb.from_user.id, mode)
+    log_info(logger, "Режим пользователя изменён", user_id=cb.from_user.id, mode=mode)
     kb = build_settings_kb(cb.from_user.id)
     await safe_edit_markup(cb.message, kb)
     await safe_answer(cb, "✅ Режим обновлён.")
@@ -166,9 +167,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     else:
         mode = mode_sel
 
-    logger.info(
-        "Выбор скачивания: user=%s, mode=%s, url=%s", str(user_id), mode, url[:200]
-    )
+    log_info(logger, "Выбор скачивания", user_id=user_id, mode=mode, url=url)
 
     await safe_edit_markup(cb.message, None)
 
@@ -355,11 +354,12 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
             await safe_answer(cb, "⚠️ Нет URL для выбранного трека.")
             return
 
-        logger.info(
-            "Выбор результата #%d пользователем %s: %s",
-            idx,
-            cb.from_user.id,
-            (url or "")[:200],
+        log_info(
+            logger,
+            "Выбор результата",
+            user_id=cb.from_user.id,
+            url=url,
+            extra={"choice_idx": idx},
         )
 
         token = save_pending_url(cb.from_user.id, url)
@@ -564,7 +564,12 @@ async def cb_download_cancel(cb: CallbackQuery) -> None:
         await safe_answer(cb, "⚠️ Не удалось определить пользователя.")
         return
     cancelled = cancel_download_task(user_id)
-    logger.info("Пользователь %s запросил отмену загрузки -> result=%s", str(user_id), "cancelled" if cancelled else "no_task")
+    log_info(
+        logger,
+        "Пользователь запросил отмену загрузки",
+        user_id=user_id,
+        extra={"result": "cancelled" if cancelled else "no_task"},
+    )
     if cancelled:
         await safe_edit_markup(cb.message, None)
         await safe_delete_msg(cb.message)

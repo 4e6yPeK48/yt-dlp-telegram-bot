@@ -4,6 +4,7 @@ from asyncio import CancelledError
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import logger, download_sem
+from utils.log_helpers import log_info, log_warning, log_exception
 from services.ytdlp import download_media_to_temp, extract_basic_info, FileTooLargeError
 from services.telegram import send_by_mode
 from storage.state import (
@@ -63,10 +64,12 @@ async def perform_download(
         try:
             files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
         except FileTooLargeError:
-            logger.warning(
-                "Загрузка прервана: файл превышает максимально допустимый размер (user=%s, mode=%s)",
-                str(user_id),
-                mode,
+            log_warning(
+                logger,
+                "Загрузка прервана: файл превышает максимально допустимый размер (превышает лимит сервера, 2 ГБ).",
+                user_id=user_id,
+                mode=mode,
+                extra={"reason": "too_large"},
             )
             try:
                 await bot.send_message(chat_id,
@@ -77,21 +80,23 @@ async def perform_download(
                     await bot.send_message(chat_id,
                                            f"⚠️ Можно попытаться доставить через альтернативный аккаунт @{username}. Отправьте любое сообщение этому аккаунту и попробуйте снова.")
             except Exception as e:
-                logger.exception(
-                    "Failed to notify user about oversized file (user=%s, chat_id=%s, url=%s, mode=%s): %s",
-                    str(user_id),
-                    str(chat_id),
-                    url,
-                    mode,
-                    e,
+                log_exception(
+                    logger,
+                    "Не удалось уведомить пользователя о слишком большом файле",
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    url=url,
+                    mode=mode,
+                    extra={"err": str(e)},
                 )
             return
 
         if not files:
-            logger.info(
-                "Загрузка завершена: нечего отправлять (user=%s, mode=%s)",
-                str(user_id),
-                mode,
+            log_info(
+                logger,
+                "Загрузка завершена: нечего отправлять",
+                user_id=user_id,
+                mode=mode,
             )
             if on_nothing:
                 await on_nothing()
@@ -101,19 +106,19 @@ async def perform_download(
                     "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
                 )
             return
-        logger.info(
-            "Загрузка завершена: файлов к отправке %d (user=%s, mode=%s)",
-            len(files),
-            str(user_id),
-            mode,
+        log_info(
+            logger,
+            f"Загрузка завершена: файлов к отправке {len(files)}",
+            user_id=user_id,
+            mode=mode,
         )
 
         await send_by_mode(bot, chat_id, mode, files)
-        logger.info(
-            "Отправка завершена: отправлено %d файлов (user=%s, mode=%s)",
-            len(files),
-            str(user_id),
-            mode,
+        log_info(
+            logger,
+            f"Отправка завершена: отправлено {len(files)} файлов",
+            user_id=user_id,
+            mode=mode,
         )
 
         if status_message is not None:
@@ -128,12 +133,19 @@ async def perform_download(
                 {"url": url, "mode": mode, "title": title or "", "duration": duration},
             )
         except Exception:
-            logger.warning(
-                "Не удалось записать историю загрузки для user=%s", str(user_id)
+            log_warning(
+                logger,
+                "Не удалось записать историю загрузки",
+                user_id=user_id,
             )
 
     except DownloadError:
-        logger.info("Загрузка требует cookies (user=%s, mode=%s)", str(user_id), mode)
+        log_info(
+            logger,
+            "Загрузка требует cookies",
+            user_id=user_id,
+            mode=mode,
+        )
         if on_cookies_required:
             await on_cookies_required()
         else:
@@ -143,20 +155,22 @@ async def perform_download(
                 "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
             )
     except CancelledError:
-        logger.info(
-            "Загрузка отменена (user=%s, mode=%s, url=%s)",
-            str(user_id),
-            mode,
-            (url or "")[:200],
+        log_info(
+            logger,
+            "Загрузка отменена",
+            user_id=user_id,
+            mode=mode,
+            url=url,
         )
         raise
     except Exception as e:
-        logger.exception(
-            "Ошибка при загрузке (user=%s, mode=%s, url=%s): %s",
-            str(user_id),
-            mode,
-            url,
-            e,
+        log_exception(
+            logger,
+            "Ошибка при загрузке",
+            user_id=user_id,
+            mode=mode,
+            url=url,
+            extra={"err": str(e)},
         )
         if on_error:
             await on_error()
@@ -166,11 +180,12 @@ async def perform_download(
                     chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
                 )
             except Exception as e2:
-                logger.exception(
-                    "Не удалось уведомить пользователя о внутренней ошибке загрузки (user=%s, chat_id=%s): %s",
-                    str(user_id),
-                    str(chat_id),
-                    e2,
+                log_exception(
+                    logger,
+                    "Не удалось уведомить пользователя о внутренней ошибке загрузки",
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    extra={"err": str(e2)},
                 )
     finally:
         await end_user_download(lock)
