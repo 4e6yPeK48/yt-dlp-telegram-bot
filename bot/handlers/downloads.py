@@ -72,13 +72,17 @@ async def perform_download(
                 extra={"reason": "too_large"},
             )
             try:
-                await bot.send_message(chat_id,
-                                       "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота.")
+                await bot.send_message(
+                    chat_id, "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота."
+                )
                 from services import telethon_client
+
                 if telethon_client.get_client():
                     username = telethon_client.get_username() or "alternate account"
-                    await bot.send_message(chat_id,
-                                           f"⚠️ Можно попытаться доставить через альтернативный аккаунт @{username}. Отправьте любое сообщение этому аккаунту и попробуйте снова.")
+                    await bot.send_message(
+                        chat_id,
+                        f"⚠️ Можно попытаться доставить через альтернативный аккаунт @{username}. Отправьте любое сообщение этому аккаунту и попробуйте снова.",
+                    )
             except Exception as e:
                 log_exception(
                     logger,
@@ -176,9 +180,7 @@ async def perform_download(
             await on_error()
         else:
             try:
-                await bot.send_message(
-                    chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
-                )
+                await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
             except Exception as e2:
                 log_exception(
                     logger,

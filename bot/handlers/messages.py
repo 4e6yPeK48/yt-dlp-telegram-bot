@@ -72,7 +72,7 @@ async def handle_text(msg: Message, bot: Bot) -> None:
     if intent == "history":
         await cmd_history(msg)
         return
-    
+
     url = raw
     uid, _ = get_user_and_chat(msg)
     log_info(logger, "Запрос", user_id=uid, url=url)
@@ -163,9 +163,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         lim_mb = COOKIES_MAX_BYTES / (1024 * 1024)
         cur_mb = size / (1024 * 1024)
         log_info(logger, "Слишком большой файл cookies", user_id=user_id, extra={"cur_mb": cur_mb, "lim_mb": lim_mb})
-        await msg.answer(
-            f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
-        )
+        await msg.answer(f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ.")
         return
 
     try:
@@ -185,10 +183,13 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             cur_mb = real_size / (1024 * 1024)
             with suppress(Exception):
                 await to_thread(os.remove, cookies_path)
-            log_info(logger, "Слишком большой сохранённый файл cookies", user_id=user_id, extra={"cur_mb": cur_mb, "lim_mb": lim_mb})
-            await msg.answer(
-                f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
+            log_info(
+                logger,
+                "Слишком большой сохранённый файл cookies",
+                user_id=user_id,
+                extra={"cur_mb": cur_mb, "lim_mb": lim_mb},
             )
+            await msg.answer(f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ.")
             return
 
     log_info(logger, "Повтор операции с cookies", user_id=user_id)
@@ -249,9 +250,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         return
 
     async def on_nothing():
-        await msg.answer(
-            "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
-        )
+        await msg.answer("😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности).")
 
     async def on_error():
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")

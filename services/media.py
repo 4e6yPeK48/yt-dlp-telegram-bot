@@ -136,7 +136,13 @@ def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
                     log_info(
                         logger,
                         f"Подготовлена обложка",
-                        extra={"path": out_path, "width": THUMB_SIZE[0], "height": THUMB_SIZE[1], "size": size, "quality": quality},
+                        extra={
+                            "path": out_path,
+                            "width": THUMB_SIZE[0],
+                            "height": THUMB_SIZE[1],
+                            "size": size,
+                            "quality": quality,
+                        },
                     )
                     return out_path
                 last_size = size

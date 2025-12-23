@@ -86,22 +86,10 @@ def build_download_choice_kb(user_id: int, token: str) -> InlineKeyboardBuilder:
         InlineKeyboardBuilder: Клавиатура выбора.
     """
     kb = InlineKeyboardBuilder()
-    kb.row(
-        InlineKeyboardButton(text="🎵 Скачать аудио", callback_data=f"dl:audio:{token}")
-    )
-    kb.row(
-        InlineKeyboardButton(text="🎬 Скачать видео", callback_data=f"dl:video:{token}")
-    )
-    kb.row(
-        InlineKeyboardButton(
-            text="📥 Лучшее качество (авто)", callback_data=f"dl:auto:{token}"
-        )
-    )
-    kb.row(
-        InlineKeyboardButton(
-            text="⚙️ Изменить тип скачивания", callback_data="settings:open"
-        )
-    )
+    kb.row(InlineKeyboardButton(text="🎵 Скачать аудио", callback_data=f"dl:audio:{token}"))
+    kb.row(InlineKeyboardButton(text="🎬 Скачать видео", callback_data=f"dl:video:{token}"))
+    kb.row(InlineKeyboardButton(text="📥 Лучшее качество (авто)", callback_data=f"dl:auto:{token}"))
+    kb.row(InlineKeyboardButton(text="⚙️ Изменить тип скачивания", callback_data="settings:open"))
     return kb
 
 
@@ -145,9 +133,7 @@ def build_history_kb(user_id: int) -> InlineKeyboardBuilder:
             if isinstance(dur, (int, float)):
                 m, s = divmod(int(dur), 60)
                 suffix = f" [{m}:{s:02d}]"
-            kb.button(
-                text=f"{title}{suffix}", callback_data=f"history:show:{global_index}"
-            )
+            kb.button(text=f"{title}{suffix}", callback_data=f"history:show:{global_index}")
         kb.adjust(1)
 
         kb.row(

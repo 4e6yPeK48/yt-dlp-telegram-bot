@@ -205,9 +205,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         )
 
     async def on_error():
-        await bot.send_message(
-            chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
-        )
+        await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
 
     async def _run_and_cleanup():
         try:
@@ -408,9 +406,7 @@ async def cb_history_open(cb: CallbackQuery) -> None:
     kb = build_history_kb(user_id)
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
-            await cb.message.answer(
-                "📜 Ваша история загрузок:", reply_markup=kb.as_markup()
-            )
+            await cb.message.answer("📜 Ваша история загрузок:", reply_markup=kb.as_markup())
 
 
 @router.callback_query(F.data == "history:close")
@@ -528,11 +524,7 @@ async def cb_history_show(cb: CallbackQuery) -> None:
         t = entry.get("time")
         from datetime import datetime
 
-        time_str = (
-            datetime.fromtimestamp(t).isoformat(sep=" ", timespec="minutes")
-            if t
-            else "—"
-        )
+        time_str = datetime.fromtimestamp(t).isoformat(sep=" ", timespec="minutes") if t else "—"
         text = (
             f"📦 История загрузки:\n\n"
             f"Название: {title}\n"

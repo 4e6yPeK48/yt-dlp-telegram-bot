@@ -45,7 +45,9 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
 
     if size and size > TG_MAX_UPLOAD_BYTES and TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
         return await request_alternate_delivery_and_send(
-            bot, chat_id, media_path,
+            bot,
+            chat_id,
+            media_path,
             caption=caption,
             thumb=thumb_path,
             supports_streaming=(media_arg == "video"),
@@ -74,7 +76,9 @@ async def _send_via_bot_or_fallback(bot, chat_id, media_path, thumb_path, captio
         )
         if TELETHON_FALLBACK_ENABLED and telethon_client.get_client():
             return await request_alternate_delivery_and_send(
-                bot, chat_id, media_path,
+                bot,
+                chat_id,
+                media_path,
                 caption=caption,
                 thumb=thumb_path,
                 supports_streaming=(media_arg == "video"),
@@ -110,8 +114,10 @@ async def send_media_files(
             )
             if not sent:
                 try:
-                    await bot.send_message(chat_id,
-                                           f"⚠️ Нельзя отправить файл '{title}'. Возможно, он слишком большой или произошла ошибка.")
+                    await bot.send_message(
+                        chat_id,
+                        f"⚠️ Нельзя отправить файл '{title}'. Возможно, он слишком большой или произошла ошибка.",
+                    )
                 except Exception as e:
                     log_exception(
                         logger,
@@ -137,9 +143,7 @@ async def send_media_files(
                 await asyncio.to_thread(shutil.rmtree, d, True)
 
 
-async def send_audio_files(
-    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
-) -> None:
+async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
     """Отправляет аудиофайлы.
 
     Args:
@@ -150,9 +154,7 @@ async def send_audio_files(
     await send_media_files(bot, chat_id, items, method="send_audio", media_arg="audio")
 
 
-async def send_video_files(
-    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
-) -> None:
+async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
     """Отправляет видеофайлы.
 
     Args:
@@ -170,9 +172,7 @@ async def send_video_files(
     )
 
 
-async def send_by_mode(
-    bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
-) -> None:
+async def send_by_mode(bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]) -> None:
     """Выбирает способ отправки по режиму.
 
     Args:
@@ -213,9 +213,7 @@ async def send_info_card(
             user_id=user_id,
             url=url,
         )
-        info = await extract_basic_info(
-            url, cookies_path=get_user_cookies_path(user_id)
-        )
+        info = await extract_basic_info(url, cookies_path=get_user_cookies_path(user_id))
         title = str(info.get("title") or "Без названия")
         dur_s = info.get("duration")
         dur_str = format_duration_hms(dur_s)

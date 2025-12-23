@@ -8,7 +8,8 @@ from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 from bot.dispatcher import dp, logger
 from utils.log_helpers import log_info, log_warning, log_exception
 from config import (
-    BOT_TOKEN, TELETHON_FALLBACK_ENABLED,
+    BOT_TOKEN,
+    TELETHON_FALLBACK_ENABLED,
 )
 from services import telethon_client
 from utils.logging import setup_logging

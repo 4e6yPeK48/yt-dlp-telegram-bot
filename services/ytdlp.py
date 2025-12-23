@@ -39,6 +39,7 @@ except Exception:
 
 class FileTooLargeError(Exception):
     """Исключение, поднимаемое при скачивании файла превышающем MAX_FILE_BYTES."""
+
     pass
 
 
@@ -78,9 +79,7 @@ def decide_effective_mode(user_mode: str, url: str) -> str:
     return user_mode
 
 
-async def ytdlp_extract(
-    url_or_query: str, ydl_opts: Dict[str, Any], download: bool
-) -> Dict[str, Any]:
+async def ytdlp_extract(url_or_query: str, ydl_opts: Dict[str, Any], download: bool) -> Dict[str, Any]:
     """Запускает yt-dlp.extract_info в отдельном потоке с таймаутом.
 
     Args:
@@ -103,9 +102,7 @@ async def ytdlp_extract(
             return ydl.extract_info(url_or_query, download=download)
 
     try:
-        result = await asyncio.wait_for(
-            asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT
-        )
+        result = await asyncio.wait_for(asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT)
         log_debug(logger, "ytdlp_extract: завершено", url=url_or_query)
         return result
     except asyncio.TimeoutError:
@@ -126,9 +123,7 @@ async def ytdlp_extract(
         raise
 
 
-async def search_tracks(
-    query: str, cookies_path: Optional[str] = None
-) -> List[Dict[str, Any]]:
+async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
     """Ищет треки по запросу (YouTube search) и фильтрует по длине.
 
     Args:
@@ -147,9 +142,7 @@ async def search_tracks(
     if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
         ydl_opts["cookiefile"] = cookies_path
 
-    info = await ytdlp_extract(
-        f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False
-    )
+    info = await ytdlp_extract(f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False)
     entries = info.get("entries") or []
     results: List[Dict[str, Any]] = []
     for e in entries:
@@ -161,15 +154,11 @@ async def search_tracks(
             url = f"https://www.youtube.com/watch?v={e['id']}"
         title = e.get("title") or "Без названия"
         channel = e.get("uploader") or e.get("channel") or ""
-        results.append(
-            {"title": title, "url": url, "duration": duration, "channel": channel}
-        )
+        results.append({"title": title, "url": url, "duration": duration, "channel": channel})
     return results
 
 
-async def extract_basic_info(
-    url: str, cookies_path: Optional[str] = None
-) -> Dict[str, Any]:
+async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Dict[str, Any]:
     """Извлекает базовую информацию о ресурсе без скачивания.
 
     Args:
@@ -268,8 +257,8 @@ async def download_media_to_temp(
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
-                 },
-                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+                },
+                # {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
                 {"key": "EmbedThumbnail"},
                 {"key": "FFmpegMetadata"},
             ]
@@ -277,14 +266,14 @@ async def download_media_to_temp(
             extra: Dict[str, Any] = {}
         elif mode == "video":
             postprocessors = [
-                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+                # {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
                 {"key": "FFmpegMetadata"},
             ]
             ydl_format = "bv*+ba/b"
             extra = {"merge_output_format": "mp4", "recode_video": "mp4"}
         else:
             postprocessors = [
-                {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
+                # {"key": "FFmpegThumbnailsConvertor", "format": "jpg"},
                 {"key": "FFmpegMetadata"},
             ]
             ydl_format = "bestvideo/best"
@@ -298,7 +287,7 @@ async def download_media_to_temp(
             "postprocessors": postprocessors,
             "writethumbnail": True,
             "write_all_thumbnails": True,
-            "convert_thumbnails": "jpg",
+            # "convert_thumbnails": "jpg",
             "prefer_ffmpeg": True,
             "nocheckcertificate": True,
             "logger": logging.getLogger("yt_dlp"),

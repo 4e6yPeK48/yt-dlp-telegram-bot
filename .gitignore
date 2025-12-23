@@ -120,6 +120,7 @@ dmypy.json
 
 # Telethon session files
 *.session
+*.session-journal
 
 # Bot logs
 logs/
