@@ -1,5 +1,6 @@
+import json
 import os
-from typing import Optional, Set, Tuple
+from typing import Optional, Set, Tuple, Dict
 
 from dotenv import load_dotenv
 
@@ -54,6 +55,28 @@ COOKIES_DIR: str = os.path.join(os.getcwd(), "cookies")
 
 # Ensure cookies directory exists
 os.makedirs(COOKIES_DIR, exist_ok=True)
+
+# Server-side cookies dir & refresh settings
+SERVER_COOKIES_DIR: str = os.path.join(os.getcwd(), "server_cookies")
+SERVER_COOKIES_MAP: Dict[str, str] = {
+    "youtube.": "server_youtube_cookies.txt",
+    "youtu.be": "server_youtube_cookies.txt",
+    "vimeo.": "server_vimeo_cookies.txt",
+    "tiktok.": "server_tiktok_cookies.txt",
+}
+SERVER_COOKIES_SOURCES: dict = {}
+try:
+    _env = os.getenv("SERVER_COOKIES_SOURCES_JSON")
+    if _env:
+        SERVER_COOKIES_SOURCES = json.loads(_env)
+except Exception:
+    SERVER_COOKIES_SOURCES = SERVER_COOKIES_SOURCES
+
+# Refresh interval in seconds (default 1 hour)
+SERVER_COOKIES_REFRESH_INTERVAL_SEC: int = int(os.getenv("SERVER_COOKIES_REFRESH_INTERVAL_SEC", "3600"))
+
+# Ensure dir exists (already present in file)
+os.makedirs(SERVER_COOKIES_DIR, exist_ok=True)
 
 # Button labels
 BTN_MENU: str = "🏠 Меню (/start, /menu)"

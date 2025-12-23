@@ -27,7 +27,7 @@ from services.telegram import (
 )
 from services.ytdlp import (
     decide_effective_mode,
-    download_media_to_temp,
+    download_media_to_temp, find_server_cookies_for_url,
 )
 from storage.state import (
     get_searches,
@@ -193,10 +193,26 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
 
     async def on_cookies_required():
         remember_cookie_request(user_id, kind="download", url=url)
-        await bot.send_message(
-            chat_id,
-            "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки.",
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🍪 Пришлю cookies.txt",
+                        callback_data="noop",
+                    ),
+                    InlineKeyboardButton(
+                        text="⚙️ Попытка с серверными cookies",
+                        callback_data=f"download:server:{token}",
+                    ),
+                ]
+            ]
         )
+        if chat_id is not None:
+            await bot.send_message(
+                chat_id,
+                "🍪 Источник требует cookies или произошла ошибка.\nПришлите файл cookies.txt для повтора попытки — или попробуйте загрузку с серверными cookies (если доступно).",
+                reply_markup=kb,
+            )
 
     async def on_nothing():
         await bot.send_message(
@@ -220,6 +236,107 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
                 on_cookies_required=on_cookies_required,
                 on_nothing=on_nothing,
                 on_error=on_error,
+                status_message=status_msg,
+            )
+        finally:
+            with suppress(Exception):
+                await pop_download_task(user_id)
+
+    task = asyncio.create_task(_run_and_cleanup())
+    set_download_task(user_id, task)
+
+
+@router.callback_query(F.data.startswith("download:server:"))
+async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
+    """
+    Начинает загрузку с использованием серверных cookies.
+
+    Args:
+        cb (CallbackQuery): Запрос.
+        bot (Bot): Экземпляр бота.
+
+    Returns:
+        None
+    """
+    await safe_answer(cb)
+    data = cb.data or ""
+    parts = data.split(":", 2)
+    if len(parts) != 3:
+        await safe_answer(cb, "⚠️ Некорректные данные.")
+        return
+    _, _, token = parts
+    pend = get_pending(token)
+    if not pend:
+        await safe_answer(cb, "ℹ️ Ссылка устарела. Отправьте её снова.")
+        return
+    user_id = pend.get("user_id")
+    url = pend.get("url")
+    if not isinstance(user_id, int) or not isinstance(url, str):
+        await safe_answer(cb, "⚠️ Ошибка данных.")
+        return
+
+    server_cookies = await find_server_cookies_for_url(url)
+    if not server_cookies:
+        await safe_answer(cb, "ℹ️ Серверные cookies для этого источника недоступны.")
+        return
+
+    with suppress(Exception):
+        pop_pending(token)
+
+    mode = decide_effective_mode(get_user_mode(user_id), url)
+
+    log_info(logger, "Попытка загрузки с серверными cookies", user_id=user_id, mode=mode, url=url)
+
+    await safe_edit_markup(cb.message, None)
+
+    lock = await begin_user_download(user_id)
+    if not lock:
+        await safe_answer(cb, "⏳ Идёт другая загрузка.")
+        return
+
+    _, chat_id = get_user_and_chat(cb)
+    if chat_id is None:
+        await end_user_download(lock)
+        await safe_answer(cb, "⚠️ Не удалось определить чат.")
+        return
+
+    await safe_answer(cb)
+
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
+    )
+    status_msg = await bot.send_message(chat_id, "⏳ Скачиваю (серверные cookies), подождите", reply_markup=cancel_kb)
+
+    async def on_cookies_required_inner():
+        # if server cookies still fail, ask user for their cookies
+        remember_cookie_request(user_id, kind="download", url=url)
+        await bot.send_message(
+            chat_id,
+            "🍪 Серверные cookies не помогли. Пришлите файл cookies.txt для повтора попытки.",
+        )
+
+    async def on_nothing_inner():
+        await bot.send_message(
+            chat_id,
+            "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
+        )
+
+    async def on_error_inner():
+        await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
+
+    async def _run_and_cleanup():
+        try:
+            await perform_download(
+                bot=bot,
+                chat_id=chat_id,
+                user_id=user_id,
+                url=url,
+                mode=mode,
+                lock=lock,
+                cookies_path=server_cookies,
+                on_cookies_required=on_cookies_required_inner,
+                on_nothing=on_nothing_inner,
+                on_error=on_error_inner,
                 status_message=status_msg,
             )
         finally:

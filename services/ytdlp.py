@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from contextlib import suppress
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
@@ -15,7 +16,7 @@ from config import (
     DURATION_LIMIT_SEC,
     CONCURRENT_DOWNLOADS,
     YTDLP_THREAD_TIMEOUT,
-    MAX_FILE_BYTES,
+    MAX_FILE_BYTES, SERVER_COOKIES_MAP, SERVER_COOKIES_DIR,
 )
 from bot.dispatcher import logger
 from utils.log_helpers import log_debug, log_info, log_error, log_exception
@@ -421,3 +422,30 @@ async def download_media_to_temp(
         )
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
+
+
+async def find_server_cookies_for_url(url: str) -> Optional[str]:
+    """
+    Ищет подходящий файл cookies для данного URL в SERVER_COOKIES_DIR.
+
+    Args:
+        url (str): URL ресурса.
+
+    Returns:
+        Optional[str]: Путь к файлу cookies или None.
+    """
+    try:
+        host = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return None
+    for key, fname in SERVER_COOKIES_MAP.items():
+        if key in host:
+            path = os.path.join(SERVER_COOKIES_DIR, fname)
+            if await asyncio.to_thread(os.path.exists, path):
+                try:
+                    size = await asyncio.to_thread(os.path.getsize, path)
+                    if size > 0:
+                        return path
+                except Exception:
+                    return None
+    return None
