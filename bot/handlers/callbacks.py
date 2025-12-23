@@ -280,9 +280,6 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
         await safe_answer(cb, "ℹ️ Серверные cookies для этого источника недоступны.")
         return
 
-    with suppress(Exception):
-        pop_pending(token)
-
     mode = decide_effective_mode(get_user_mode(user_id), url)
 
     log_info(logger, "Попытка загрузки с серверными cookies", user_id=user_id, mode=mode, url=url)

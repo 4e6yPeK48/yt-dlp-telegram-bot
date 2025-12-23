@@ -2,7 +2,7 @@ import asyncio
 import logging
 import sys
 
-from config import SERVER_COOKIES_SOURCES
+from config import SERVER_COOKIES_SOURCES, SERVER_COOKIES_MAP
 from services.server_cookies import refresh_server_cookies_once
 from utils.log_helpers import log_info, log_exception
 from utils.logging import setup_logging
@@ -19,7 +19,13 @@ async def _main():
         return 0
     try:
         results = await refresh_server_cookies_once()
-        success = all(results.get(k, False) for k in SERVER_COOKIES_SOURCES.keys())
+        expected_fnames = set()
+        for k in SERVER_COOKIES_SOURCES.keys():
+            if k in SERVER_COOKIES_MAP:
+                expected_fnames.add(SERVER_COOKIES_MAP[k])
+            else:
+                expected_fnames.add(k)
+        success = all(results.get(fname, False) for fname in expected_fnames)
         log_info(logger, "fetch_server_cookies: результаты", extra={"results": results})
         return 0 if success else 2
     except Exception:
