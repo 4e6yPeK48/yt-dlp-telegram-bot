@@ -17,7 +17,10 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
-RUN useradd --create-home --shell /bin/false appuser && chown -R appuser:appuser /app
+RUN mkdir -p /app/logs \
+    && useradd -u 1000 --create-home --shell /bin/false appuser \
+    && chown -R appuser:appuser /app
+
 USER appuser
 
 CMD ["python", "main.py"]
