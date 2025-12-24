@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+tests/
+logs/
+*.sqlite3
+.DS_Store
+poetry.lock
