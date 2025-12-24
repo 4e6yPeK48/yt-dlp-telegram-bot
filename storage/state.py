@@ -23,7 +23,7 @@ class StateStore:
         self._pending: Dict[str, Dict[str, Any]] = {}
         self._history: Dict[int, List[Dict[str, Any]]] = {}
         self._hist_pages: Dict[int, int] = {}
-        self._download_tasks: Dict[int, asyncio.Task] = {}
+        self._download_tasks: Dict[int, asyncio.Task[Any]] = {}
         self._cookies_dir = Path(cookies_dir)
         self._cookies_dir.mkdir(parents=True, exist_ok=True)
 
@@ -142,13 +142,13 @@ class StateStore:
     def reset_history_page(self, user_id: int) -> None:
         self._hist_pages.pop(user_id, None)
 
-    def set_download_task(self, user_id: int, task: asyncio.Task) -> None:
+    def set_download_task(self, user_id: int, task: asyncio.Task[Any]) -> None:
         self._download_tasks[user_id] = task
 
-    def get_download_task(self, user_id: int) -> Optional[asyncio.Task]:
+    def get_download_task(self, user_id: int) -> Optional[asyncio.Task[Any]]:
         return self._download_tasks.get(user_id)
 
-    def pop_download_task(self, user_id: int) -> Optional[asyncio.Task]:
+    def pop_download_task(self, user_id: int) -> Optional[asyncio.Task[Any]]:
         return self._download_tasks.pop(user_id, None)
 
     def cancel_download_task(self, user_id: int) -> bool:
@@ -478,7 +478,7 @@ def reset_history_page(user_id: int) -> None:
     _store.reset_history_page(user_id)
 
 
-def set_download_task(user_id: int, task: asyncio.Task) -> None:
+def set_download_task(user_id: int, task: asyncio.Task[Any]) -> None:
     """
     Сохраняет задачу загрузки для пользователя.
 
@@ -492,7 +492,7 @@ def set_download_task(user_id: int, task: asyncio.Task) -> None:
     _store.set_download_task(user_id, task)
 
 
-def get_download_task(user_id: int) -> Optional[asyncio.Task]:
+def get_download_task(user_id: int) -> Optional[asyncio.Task[Any]]:
     """
     Получает задачу загрузки пользователя.
 
@@ -505,7 +505,7 @@ def get_download_task(user_id: int) -> Optional[asyncio.Task]:
     return _store.get_download_task(user_id)
 
 
-def pop_download_task(user_id: int) -> Optional[asyncio.Task]:
+def pop_download_task(user_id: int) -> Optional[asyncio.Task[Any]]:
     """
     Извлекает и удаляет задачу загрузки пользователя.
 

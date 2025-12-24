@@ -1,5 +1,5 @@
 from contextlib import suppress
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import asyncio
 
 from aiogram import Bot, F
@@ -9,8 +9,6 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
-from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import router, logger
 from bot.keyboards import (
@@ -95,8 +93,9 @@ async def cb_settings_close(cb: CallbackQuery) -> None:
         None
     """
     await safe_answer(cb)
-    await safe_delete_msg(cb.message)
-    await safe_edit_markup(cb.message, None)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_delete_msg(message)
+    await safe_edit_markup(message, None)
 
 
 @router.callback_query(F.data.startswith("setmode:"))
@@ -124,7 +123,8 @@ async def cb_set_mode(cb: CallbackQuery) -> None:
     set_user_mode(cb.from_user.id, mode)
     log_info(logger, "Режим пользователя изменён", user_id=cb.from_user.id, mode=mode)
     kb = build_settings_kb(cb.from_user.id)
-    await safe_edit_markup(cb.message, kb)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, kb)
     await safe_answer(cb, "✅ Режим обновлён.")
 
 
@@ -165,7 +165,8 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
 
     log_info(logger, "Выбор скачивания", user_id=user_id, mode=mode, url=url)
 
-    await safe_edit_markup(cb.message, None)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, None)
 
     lock = await begin_user_download(user_id)
     if not lock:
@@ -185,7 +186,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
 
     cookies_path = get_user_cookies_path(user_id)
 
-    async def on_cookies_required():
+    async def on_cookies_required() -> None:
         remember_cookie_request(user_id, kind="download", url=url)
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -208,16 +209,16 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
                 reply_markup=kb,
             )
 
-    async def on_nothing():
+    async def on_nothing() -> None:
         await bot.send_message(
             chat_id,
             "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
         )
 
-    async def on_error():
+    async def on_error() -> None:
         await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
 
-    async def _run_and_cleanup():
+    async def _run_and_cleanup() -> None:
         try:
             await perform_download(
                 bot=bot,
@@ -306,7 +307,8 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
 
     log_info(logger, "Попытка загрузки с серверными cookies", user_id=user_id, mode=mode, url=url)
 
-    await safe_edit_markup(cb.message, None)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, None)
 
     lock = await begin_user_download(user_id)
     if not lock:
@@ -324,23 +326,23 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
     cancel_kb = build_cancel_kb()
     status_msg = await bot.send_message(chat_id, "⏳ Скачиваю (серверные cookies), подождите", reply_markup=cancel_kb)
 
-    async def on_cookies_required_inner():
+    async def on_cookies_required_inner() -> None:
         remember_cookie_request(user_id, kind="download", url=url)
         await bot.send_message(
             chat_id,
             "🍪 Серверные cookies не помогли. Пришлите файл cookies.txt для повтора попытки.",
         )
 
-    async def on_nothing_inner():
+    async def on_nothing_inner() -> None:
         await bot.send_message(
             chat_id,
             "😕 Нечего отправлять. Возможно, превышен лимит длительности (30 минут).",
         )
 
-    async def on_error_inner():
+    async def on_error_inner() -> None:
         await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
 
-    async def _run_and_cleanup():
+    async def _run_and_cleanup() -> None:
         try:
             await perform_download(
                 bot=bot,
@@ -390,7 +392,8 @@ async def handle_cancel(cb: CallbackQuery) -> None:
     if user_id is not None:
         pop_searches(user_id)
         pop_awaiting(user_id)
-    await safe_edit_markup(cb.message, None)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, None)
     await safe_answer(cb, "❌ Отменено.")
 
 
@@ -418,7 +421,8 @@ async def handle_next_page(cb: CallbackQuery) -> None:
     state["page"] = (page + 1) % pages
     set_searches(user_id, state)
     kb = build_results_kb(user_id)
-    await safe_edit_markup(cb.message, kb)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, kb)
     await safe_answer(cb)
 
 
@@ -446,7 +450,8 @@ async def handle_prev_page(cb: CallbackQuery) -> None:
     state["page"] = (page - 1 + pages) % pages
     set_searches(user_id, state)
     kb = build_results_kb(user_id)
-    await safe_edit_markup(cb.message, kb)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, kb)
     await safe_answer(cb)
 
 
@@ -500,8 +505,11 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
 
         with suppress(Exception):
             pop_searches(cb.from_user.id)
-        await safe_delete_msg(cb.message)
-        await safe_edit_markup(cb.message, None)
+        # narrow message for typed helpers
+        message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+        with suppress(Exception):
+            await safe_delete_msg(message)
+        await safe_edit_markup(message, None)
 
         _, chat_id = get_user_and_chat(cb)
         if chat_id is not None and cb.message is not None and isinstance(cb.message, Message):
@@ -554,8 +562,9 @@ async def cb_history_close(cb: CallbackQuery) -> None:
         None
     """
     await safe_answer(cb)
-    await safe_delete_msg(cb.message)
-    await safe_edit_markup(cb.message, None)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_delete_msg(message)
+    await safe_edit_markup(message, None)
     user_id, _ = get_user_and_chat(cb)
     if user_id is not None:
         reset_history_page(user_id)
@@ -586,7 +595,8 @@ async def cb_history_next(cb: CallbackQuery) -> None:
     page = (page + 1) % pages
     set_history_page(user_id, page)
     kb = build_history_kb(user_id)
-    await safe_edit_markup(cb.message, kb)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, kb)
     await safe_answer(cb)
 
 
@@ -615,7 +625,8 @@ async def cb_history_prev(cb: CallbackQuery) -> None:
     page = (page - 1 + pages) % pages
     set_history_page(user_id, page)
     kb = build_history_kb(user_id)
-    await safe_edit_markup(cb.message, kb)
+    message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+    await safe_edit_markup(message, kb)
     await safe_answer(cb)
 
 
@@ -696,8 +707,9 @@ async def cb_download_cancel(cb: CallbackQuery) -> None:
         extra={"result": "cancelled" if cancelled else "no_task"},
     )
     if cancelled:
-        await safe_edit_markup(cb.message, None)
-        await safe_delete_msg(cb.message)
+        message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+        await safe_edit_markup(message, None)
+        await safe_delete_msg(message)
         await safe_answer(cb, "❌ Загрузка отменена.")
     else:
         await safe_answer(cb, "ℹ️ Нет активной загрузки.")

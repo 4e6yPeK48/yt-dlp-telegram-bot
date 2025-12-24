@@ -83,10 +83,10 @@ async def cmd_settings(msg: Message) -> None:
             reply_markup=build_main_reply_kb(),
         )
         return
-    log_info(logger, "Открытие настроек", user_id=msg.from_user.id)
+    log_info(logger, "Открытие настроек", user_id=user_id)
     await msg.answer(
         "⚙️ Настройки типа скачивания:",
-        reply_markup=build_settings_kb(msg.from_user.id).as_markup(),
+        reply_markup=build_settings_kb(user_id).as_markup(),
     )
 
 

@@ -7,8 +7,8 @@ from contextlib import suppress
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
-from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 from config import (
     MAX_PLAYLIST_ITEMS,
@@ -35,7 +35,7 @@ from services.media import (
 )
 
 try:
-    from bot.dispatcher import download_sem  # type: ignore
+    from bot.dispatcher import download_sem
 except Exception:
     download_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 
@@ -126,7 +126,7 @@ class YTDLPExtractor:
             "noplaylist": True,
             "default_search": "ytsearch",
         }
-        if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
+        if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):  # mypy: ignore
             ydl_opts["cookiefile"] = cookies_path
 
         info = await self.ytdlp_extract(f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False)
@@ -152,7 +152,7 @@ class YTDLPExtractor:
             "playlist_items": "1",
             "logger": logging.getLogger("yt_dlp"),
         }
-        if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
+        if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):  # mypy: ignore
             ydl_opts["cookiefile"] = cookies_path
 
         info = await self.ytdlp_extract(url, ydl_opts, download=False)
@@ -386,7 +386,7 @@ class YTDLPDownloader:
                 "match_filter": make_duration_match_filter(DURATION_LIMIT_SEC),
                 **extra,
             }
-            if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):
+            if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):  # mypy: ignore
                 ydl_opts["cookiefile"] = cookies_path
 
             async with download_sem:

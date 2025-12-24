@@ -1,7 +1,7 @@
 import asyncio
 import os
 from contextlib import suppress
-from typing import Optional, Callable, Awaitable
+from typing import Optional, Callable, Awaitable, Any, Dict, List
 
 from telethon import TelegramClient, events, errors
 
@@ -17,7 +17,7 @@ from bot.dispatcher import logger
 from utils.log_helpers import log_info, log_warning, log_error, log_exception, log_debug
 
 try:
-    from bot.dispatcher import telethon_sem  # type: ignore
+    from bot.dispatcher import telethon_sem
 except Exception:
     telethon_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 
@@ -38,7 +38,7 @@ class TelethonManager:
         self._api_hash = api_hash
         self._client: Optional[TelegramClient] = None
         self._client_lock = asyncio.Lock()
-        self._me_cache: Optional[dict] = None
+        self._me_cache: Optional[Dict[str, Any]] = None
 
     async def ensure_started(self) -> None:
         if not TELETHON_FALLBACK_ENABLED:
@@ -112,7 +112,7 @@ class TelethonManager:
         fut = asyncio.get_event_loop().create_future()
 
         @client.on(events.NewMessage(from_users=user_id))
-        async def _handler(event):
+        async def _handler(event: object) -> None:
             if not fut.done():
                 fut.set_result(True)
             client.remove_event_handler(_handler, events.NewMessage)
@@ -188,7 +188,7 @@ class TelethonManager:
                             pass
                         entity = await client.get_entity(chat_id)
 
-                    kwargs = {}
+                    kwargs: Dict[str, Any] = {}
                     if caption:
                         kwargs["caption"] = caption
                     if thumb and os.path.exists(thumb):
@@ -249,7 +249,7 @@ class TelethonManager:
 
     async def request_alternate_delivery_and_send(
         self,
-        bot,
+        bot: Any,
         chat_id: int,
         file_path: str,
         caption: Optional[str] = None,
@@ -261,7 +261,7 @@ class TelethonManager:
             log_info(logger, "request_alternate_delivery_and_send: Telethon-клиент не инициализирован.")
             return False
         username = self.get_username() or "alternate account"
-        notify_msg_ids = []
+        notify_msg_ids: List[int] = []
         try:
             log_info(
                 logger,
@@ -455,7 +455,7 @@ async def send_file_via_user(
 
 
 async def request_alternate_delivery_and_send(
-    bot,
+    bot: Any,
     chat_id: int,
     file_path: str,
     caption: Optional[str] = None,

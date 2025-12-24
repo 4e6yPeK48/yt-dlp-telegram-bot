@@ -14,7 +14,7 @@ except ImportError:
     logger = logging.getLogger("bot")
 
 
-async def _main():
+async def _main() -> int:
     if not SERVER_COOKIES_SOURCES:
         log_info(logger, "Не заданы SERVER_COOKIES_SOURCES; пропускаю.")
         return 0

@@ -2,7 +2,7 @@ import asyncio
 import os
 import shutil
 from contextlib import suppress
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
 
 from aiogram import Bot
 from aiogram.types import FSInputFile
@@ -55,7 +55,7 @@ class TelegramSender:
             bool: True если отправлено успешно (через бота или Telethon), False в противном случае.
         """
         try:
-            size = await asyncio.to_thread(os.path.getsize, media_path)
+            size = await asyncio.to_thread(os.path.getsize, media_path)  # mypy: ignore
         except Exception:
             size = 0
 
@@ -71,7 +71,7 @@ class TelegramSender:
             )
 
         kwargs = {"chat_id": chat_id, "caption": caption, "parse_mode": None, media_arg: FSInputFile(media_path)}
-        if thumb_path and await asyncio.to_thread(os.path.exists, thumb_path):
+        if thumb_path and await asyncio.to_thread(os.path.exists, thumb_path):  # mypy: ignore
             kwargs["thumbnail"] = FSInputFile(thumb_path)
         if extra:
             kwargs.update(extra)
@@ -130,10 +130,10 @@ class TelegramSender:
             finally:
                 if media_path:
                     with suppress(Exception):
-                        await asyncio.to_thread(os.remove, media_path)
+                        await asyncio.to_thread(os.remove, media_path)  # mypy: ignore
                 if thumb_path:
                     with suppress(Exception):
-                        await asyncio.to_thread(os.remove, thumb_path)
+                        await asyncio.to_thread(os.remove, thumb_path)  # mypy: ignore
                 await asyncio.sleep(0.3)
 
         parents = {os.path.dirname(p) for p, _ in items}
@@ -141,7 +141,7 @@ class TelegramSender:
             base = os.path.basename(d)
             if base.startswith("out_"):
                 with suppress(Exception):
-                    await asyncio.to_thread(shutil.rmtree, d, True)
+                    await asyncio.to_thread(shutil.rmtree, d, True)  # mypy: ignore
 
     async def send_audio_files(self, bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
         await self.send_media_files(bot, chat_id, items, method="send_audio", media_arg="audio")
@@ -164,7 +164,7 @@ class TelegramSender:
         url: str,
         user_id: int,
         reply_markup: Optional[Any] = None,
-        extract_basic_info_fn=None,
+        extract_basic_info_fn: Optional[Callable[[str], Awaitable[Dict[str, Any]]]] = None,
     ) -> None:
         extract_fn = extract_basic_info_fn or extract_basic_info
         caption_fallback = "🎧 Файл найден:\n\nВыберите, что скачать для этой ссылки:"

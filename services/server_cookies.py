@@ -1,7 +1,7 @@
 import asyncio
 import os
 import tempfile
-from typing import Dict
+from typing import Dict, Optional
 from contextlib import suppress
 
 import aiohttp
@@ -74,7 +74,7 @@ async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path:
         return False
 
 
-async def refresh_server_cookies_once(sources: Dict[str, str] = None) -> Dict[str, bool]:
+async def refresh_server_cookies_once(sources: Optional[Dict[str, str]] = None) -> Dict[str, bool]:
     """
     Однократное обновление серверных cookies из заданных источников.
 
@@ -128,7 +128,7 @@ async def refresh_server_cookies_once(sources: Dict[str, str] = None) -> Dict[st
     return out
 
 
-async def start_periodic_refresher(interval: int = None, stop_event: asyncio.Event = None) -> None:
+async def start_periodic_refresher(interval: Optional[int] = None, stop_event: Optional[asyncio.Event] = None) -> None:
     """
     Запускает периодический рефрешер серверных cookies.
 
@@ -148,7 +148,10 @@ async def start_periodic_refresher(interval: int = None, stop_event: asyncio.Eve
                 await refresh_server_cookies_once()
             except Exception:
                 log_exception(logger, "server_cookies: refresh loop error")
-            await asyncio.wait([stop_event.wait()], timeout=interval)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                log_exception(logger, "server_cookies: рефрешер: таймаут ожидания")
     except asyncio.CancelledError:
         log_exception(logger, "server_cookies: рефрешер отменён")
     finally:

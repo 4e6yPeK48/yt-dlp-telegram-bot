@@ -6,11 +6,8 @@ from contextlib import suppress
 from aiogram import Bot, F
 from aiogram.types import (
     Message,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
 )
-from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
-from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
+from yt_dlp.utils import DownloadError
 
 from bot.dispatcher import router, logger
 from bot.handlers.callbacks import build_cancel_kb
@@ -248,16 +245,16 @@ async def handle_document(msg: Message, bot: Bot) -> None:
         await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
 
-    async def on_nothing():
+    async def on_nothing() -> None:
         await msg.answer("😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности).")
 
-    async def on_error():
+    async def on_error() -> None:
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")
 
     cancel_kb = build_cancel_kb()
     status_msg = await msg.answer("⏳ Скачиваю, подождите", reply_markup=cancel_kb)
 
-    async def _run_and_cleanup():
+    async def _run_and_cleanup() -> None:
         try:
             await perform_download(
                 bot=bot,

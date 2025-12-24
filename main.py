@@ -2,8 +2,6 @@ import asyncio
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
-from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
-from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import dp, logger
 from utils.log_helpers import log_info, log_warning, log_exception

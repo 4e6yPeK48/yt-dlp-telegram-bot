@@ -64,7 +64,7 @@ SERVER_COOKIES_MAP: Dict[str, str] = {
     "vimeo.": "server_vimeo_cookies.txt",
     "tiktok.": "server_tiktok_cookies.txt",
 }
-SERVER_COOKIES_SOURCES: dict = {}
+SERVER_COOKIES_SOURCES: Dict[str, str] = {}
 try:
     _env = os.getenv("SERVER_COOKIES_SOURCES_JSON")
     if _env:

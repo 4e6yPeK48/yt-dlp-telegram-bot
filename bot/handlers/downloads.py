@@ -1,6 +1,6 @@
 from asyncio import CancelledError
 
-from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
+from yt_dlp.utils import DownloadError
 
 from bot.dispatcher import logger
 from utils.log_helpers import log_info, log_warning, log_exception
@@ -13,20 +13,22 @@ from storage.state import (
 )
 from contextlib import suppress
 
+from typing import Optional, Callable, Awaitable, Any
+
 
 async def perform_download(
-    bot,
-    chat_id,
-    user_id,
-    url,
-    mode,
-    lock,
-    cookies_path=None,
-    on_cookies_required=None,
-    on_nothing=None,
-    on_error=None,
-    status_message=None,
-):
+    bot: Any,
+    chat_id: int,
+    user_id: int,
+    url: str,
+    mode: str,
+    lock: Any,
+    cookies_path: Optional[str] = None,
+    on_cookies_required: Optional[Callable[[], Awaitable[None]]] = None,
+    on_nothing: Optional[Callable[[], Awaitable[None]]] = None,
+    on_error: Optional[Callable[[], Awaitable[None]]] = None,
+    status_message: Optional[Any] = None,
+) -> None:
     """Универсальная функция для скачивания и отправки медиафайлов.
 
     Выполняет следующие шаги:

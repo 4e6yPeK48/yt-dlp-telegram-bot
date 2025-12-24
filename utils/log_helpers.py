@@ -59,13 +59,13 @@ def _format_ctx(
 def log_info(
     logger: logging.Logger,
     msg: str,
-    *args,
+    *args: Any,
     user_id: Optional[int] = None,
     chat_id: Optional[int] = None,
     mode: Optional[str] = None,
     url: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Логирует информационное сообщение с контекстом.
@@ -90,13 +90,13 @@ def log_info(
 def log_warning(
     logger: logging.Logger,
     msg: str,
-    *args,
+    *args: Any,
     user_id: Optional[int] = None,
     chat_id: Optional[int] = None,
     mode: Optional[str] = None,
     url: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Логирует предупреждающее сообщение с контекстом.
@@ -121,13 +121,13 @@ def log_warning(
 def log_error(
     logger: logging.Logger,
     msg: str,
-    *args,
+    *args: Any,
     user_id: Optional[int] = None,
     chat_id: Optional[int] = None,
     mode: Optional[str] = None,
     url: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Логирует сообщение об ошибке с контекстом.
@@ -152,13 +152,13 @@ def log_error(
 def log_debug(
     logger: logging.Logger,
     msg: str,
-    *args,
+    *args: Any,
     user_id: Optional[int] = None,
     chat_id: Optional[int] = None,
     mode: Optional[str] = None,
     url: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Логирует отладочное сообщение с контекстом.
@@ -183,13 +183,13 @@ def log_debug(
 def log_exception(
     logger: logging.Logger,
     msg: str,
-    *args,
+    *args: Any,
     user_id: Optional[int] = None,
     chat_id: Optional[int] = None,
     mode: Optional[str] = None,
     url: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Логирует сообщение об исключении с контекстом.
