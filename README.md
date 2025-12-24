@@ -1,172 +1,111 @@
-# yt\-dlp Telegram Bot (Windows/Linux)
+# yt-dlp Telegram Bot
 
-Кратко: асинхронный бот на `aiogram 3` и `yt-dlp` ищет и скачивает аудио, отправляет пользователю в Telegram. Нужен установленный `ffmpeg`.
+Лёгкий асинхронный Telegram‑бот на `aiogram 3`, который ищет и скачивает аудио/видео с помощью `yt-dlp` и доставляет их
+пользователям. Поддерживает опциональный Telethon‑fallback для доставки больших файлов и централизованные серверные
+cookies.
 
-## Требования
+## Ключевые возможности
 
-1. Python `3.10+`.
-2. `ffmpeg` в `PATH`.
-3. Telegram Bot Token в переменной окружения `BOT_TOKEN`.
-4. Доступ в интернет к Telegram API и источникам медиа.
+- Принятие ссылки или поискового запроса. Для прямой ссылки показывается карточка с метаданными; для запроса — список
+  результатов поиска на Youtube (с пагинацией).
+- Режимы скачивания: `auto` / `audio` / `video` / `video_nosound`.
+- Генерация миниатюр (320×320 JPEG) и встраивание метаданных для аудио.
+- Доставка через Telegram Bot API; при превышении лимита Bot API — попытка альтернативной доставки через авторизованный
+  Telethon‑аккаунт.
+- Поддержка пользовательских `cookies.txt` (Netscape) и серверных cookies с периодическим обновлением.
+- In‑memory per‑user state: локи для предотвращения параллельных загрузок, отложенные задачи, история и токены для
+  безопасного выбора скачивания.
+- Надёжное логирование с ротацией логов.
 
-## Установка на Windows
+## Быстрый старт (Ubuntu)
 
-1. Установить Python и `ffmpeg`:
-   - Python: скачать с `python.org` и добавить в `PATH`.
-   - ffmpeg: установить через Chocolatey `choco install ffmpeg` или вручную и добавить `bin` в `PATH`.
-2. Клонировать проект:
-   - В папку, например `C:\Users\...\PycharmProjects\yt-dlp-telegram-bot`.
-3. Создать виртуальное окружение и установить зависимости:
-
-    ```powershell
-    # PowerShell
-    git clone https://github.com/4e6yPeK48/yt-dlp-telegram-bot yt-dlp-telegram-bot
-    cd .\yt-dlp-telegram-bot\
-    python -m venv .venv
-    .\.venv\Scripts\Activate.ps1
-    python -m pip install -U pip
-    pip install -r requirements.txt
-    ```
-
-4. Установить `BOT_TOKEN` и запустить:
-
-    ```powershell
-    # PowerShell
-    $env:BOT_TOKEN="ваш_токен_бота"
-    python .\main.py
-    ```
-
-5. Постоянная установка токена (по желанию):
-    
-   ```powershell
-   # PowerShell (сделает переменную постоянной)
-   setx BOT_TOKEN "ваш_токен_бота"
+1. Клонировать репозиторий и создать виртуальное окружение:
+   ```bash
+   git clone <repo>
+   cd <repo>
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -U pip
+   pip install -r requirements.txt
+   ```
+2. Установить переменные окружения (или поместить в `.env`):
+    - `BOT_TOKEN` — токен Telegram‑бота (обязательно)
+    - опционально: `TELETHON_API_ID`, `TELETHON_API_HASH`, `TELETHON_SESSION`
+    - при использовании серверных cookies: `SERVER_COOKIES_SOURCES_JSON`
+3. Запуск:
+   ```bash
+   python main.py
    ```
 
-## Установка на Ubuntu
+## Конфигурация
 
-1. Установить пакеты:
+Основные опции находятся в `config.py`:
 
-    ```bash
-    # bash
-    sudo apt update
-    sudo apt install -y python3-venv python3-pip ffmpeg git
-    ```
+- `BOT_TOKEN`, `TELETHON_API_ID`, `TELETHON_API_HASH`, `TELETHON_SESSION`
+- `CONCURRENT_DOWNLOADS`, `MAX_PLAYLIST_ITEMS`, `DURATION_LIMIT_SEC`
+- `MAX_FILE_MB` (жёсткий лимит на скачиваемый файл)
+- `TG_MAX_UPLOAD_MB` (лимит бота для переключения на Telethon)
+- `SERVER_COOKIES_SOURCES_JSON` и `SERVER_COOKIES_MAP` — для серверных cookies
 
-2. Развернуть проект:
+Каталоги cookies и серверных cookies: `cookies/` и `server_cookies/` (создаются автоматически).
 
-    ```bash
-    # bash
-    sudo mkdir -p /opt
-    cd /opt
-    sudo git clone https://github.com/4e6yPeK48/yt-dlp-telegram-bot
-    sudo chown -R $USER:$USER /opt/yt-dlp-telegram-bot
-    cd /opt/yt-dlp-telegram-bot
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -U pip
-    pip install -r requirements.txt
-    ```
+## Как пользоваться
 
-3. Запуск вручную:
+- Отправьте ссылку — бот покажет карточку с названием, длительностью и превью; выберите, что скачать.
+- Отправьте текстовый запрос — бот выполнит поиск (YouTube) и покажет до `MAX_RESULTS` результатов с пагинацией.
+- Если источник требует авторизации/защиту, отправьте `cookies.txt` как документ (формат Netscape, макс. 5 МБ); бот
+  повторит операцию автоматически.
+- Для больших файлов бот предложит альтернативную доставку через Telethon: надо отправить любое сообщение
+  авторизованному аккаунту (рукопожатие), затем файл будет доставлен MTProto.
 
-    ```bash
-    # bash
-    export BOT_TOKEN="ваш_токен_бота"
-    python main.py
-    ```
+## Telethon‑fallback
 
-## Автозапуск через `systemd` на Ubuntu
+- Опционален. Если включён и настроены переменные (`TELETHON_*`), Telethon используется для доставки файлов, превышающих
+  лимит Bot API.
+- Процесс: бот уведомляет пользователя, ожидает рукопожатие, затем Telethon загружает файл от имени авторизованного
+  аккаунта.
+- Скрипт для локальной авторизации: `scripts/telethon_login.py`.
 
-1. Создать системного пользователя для сервиса и выдать ему права
+## Серверные cookies
 
-    ```bash
-    # bash
-    sudo useradd --system --home /opt/yt-dlp-telegram-bot --shell /usr/sbin/nologin ytbot || true
-    sudo chown -R ytbot:ytbot /opt/yt-dlp-telegram-bot
-    ```
+- Источники и их URL задаются в `SERVER_COOKIES_SOURCES_JSON`.
+- Скрипт для одноразовой загрузки server cookies: `scripts/fetch_server_cookies.py`.
+- Сервис загрузит файлы в `server_cookies/` и будет использовать их для соответствующих доменов.
 
-2. Создать сервис:
+## Логи и мониторинг
 
-    ```text
-    # файл: /etc/systemd/system/yt-dlp-bot.service
-    [Unit]
-    Description=yt-dlp Telegram Bot
-    After=network.target
-    
-    [Service]
-    Type=simple
-    User=ytbot
-    WorkingDirectory=/opt/yt-dlp-telegram-bot
-    Environment=PYTHONUNBUFFERED=1
-    Environment=BOT_TOKEN=ваш_токен_бота
-    ExecStart=/opt/yt-dlp-telegram-bot/.venv/bin/python /opt/yt-dlp-telegram-bot/main.py
-    Restart=on-failure
-    RestartSec=5
-    StandardOutput=journal
-    StandardError=journal
-    
-    [Install]
-    WantedBy=multi-user.target
-    ```
+- Логирование настроено в `utils/logging.py` с ротацией в папке `logs/`.
+- В консоли отображаются записи с префиксом `bot` на уровне INFO; подробности сохраняются в файлы `app.debug.log`,
+  `app.info.log`, `app.warn.log`, `app.error.log`.
 
-3. Применить и запустить:
+## Тесты
 
-    ```bash
-    # bash
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now yt-dlp-bot
-    systemctl status yt-dlp-bot
-    ```
+- Юнит‑тесты покрывают core‑функциональность: состояние, клавиатуры, утилиты.
+- Запуск тестов:
+  ```bash
+  pip install -r requirements.txt
+  pytest -q
+  ```
 
-## Логи
+## Структура проекта (кратко)
 
-1. Файлы логов: в `logs/` рядом с `main.py`:
-   - `logs/app.debug.log`, `logs/app.info.log`, `logs/app.warn.log`, `logs/app.error.log`.
-   - Ротация по полуночи, хранится 7 копий.
-2. Просмотр:
+- `main.py` — входная точка, настройка логирования и polling.
+- `bot/` — хендлеры, клавиатуры, routing (`commands.py`, `messages.py`, `callbacks.py`, `keyboards.py`).
+- `services/` — интеграции: `ytdlp.py`, `telegram.py`, `telethon_client.py`, `media.py`, `server_cookies.py`.
+- `storage/state.py` — in‑memory state (локи, pending токены, история, задачи).
+- `utils/` — хелперы: `text.py`, `validators.py`, логирование.
+- `scripts/` — утилиты для администрирования.
+- `tests/` — pytest тесты.
 
-    ```bash
-    # bash
-    tail -f logs/app.info.log
-    journalctl -u yt-dlp-bot -f
-    ```
+## Безопасность и ограничения
 
-## Cookies и временные файлы
+- Файлы cookies хранятся локально в `cookies/{user_id}_cookies.txt` и ограничены настройкой `COOKIES_MAX_BYTES`.
+- Ограничения по длительности (`DURATION_LIMIT_SEC`), числу элементов плейлиста (`MAX_PLAYLIST_ITEMS`) и размеру файла (
+  `MAX_FILE_MB`) предотвращают перегрузку сервера.
+- История — in‑memory; при необходимости можно заменить на постоянное хранилище.
 
-1. Cookies сохраняются в `cookies/{user_id}_cookies.txt`.
-2. Медиа скачиваются во временные каталоги ОС, после отправки файлы удаляются. Папки вида `out_*` в системном `Temp` могут оставаться до очистки.
+## Примечания для эксплуатации
 
-## Переменные окружения через `.env` \(опционально\)
-
-Если нужно читать `.env`, добавьте загрузку переменных в код и установите пакет `python-dotenv`:
-
-```python
-# python
-from dotenv import load_dotenv
-load_dotenv()  # разместить до чтения os.getenv(...)
-```
-
-Пример файла `'.env'`:
-
-```ini
-# ini
-BOT_TOKEN=ваш_токен_бота
-```
-
-## Обновление бота на сервере
-
-```bash
-# bash
-cd /opt/yt-dlp-telegram-bot
-git pull
-source .venv/bin/activate
-pip install -r requirements.txt
-sudo systemctl restart yt-dlp-bot
-```
-
-## Частые проблемы
-
-1. Нет `ffmpeg`: конвертация в `mp3` не выполняется, отправка не состоится.
-2. `aiogram 3.7+`: инициализируйте `Bot` с `default=DefaultBotProperties(parse_mode="HTML")`.
-3. Windows MAX\_PATH: при очень длинных именах включите длинные пути в реестре или упростите шаблон имени в коде.
+- Для production‑запуска рекомендуется systemd‑unit с указанием рабочего каталога и venv.
+- Для автоматического обновления серверных cookies используйте `scripts/fetch_server_cookies.py` в cron или systemd
+  timer.
