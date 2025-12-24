@@ -180,9 +180,7 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
 
     await safe_answer(cb)
 
-    cancel_kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
-    )
+    cancel_kb = build_cancel_kb()
     status_msg = await bot.send_message(chat_id, "⏳ Скачиваю, подождите", reply_markup=cancel_kb)
 
     cookies_path = get_user_cookies_path(user_id)
@@ -323,9 +321,7 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
 
     await safe_answer(cb)
 
-    cancel_kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
-    )
+    cancel_kb = build_cancel_kb()
     status_msg = await bot.send_message(chat_id, "⏳ Скачиваю (серверные cookies), подождите", reply_markup=cancel_kb)
 
     async def on_cookies_required_inner():
@@ -705,3 +701,15 @@ async def cb_download_cancel(cb: CallbackQuery) -> None:
         await safe_answer(cb, "❌ Загрузка отменена.")
     else:
         await safe_answer(cb, "ℹ️ Нет активной загрузки.")
+
+
+def build_cancel_kb() -> InlineKeyboardMarkup:
+    """
+    Строит клавиатуру отмены.
+
+    Returns:
+        InlineKeyboardMarkup: Клавиатура с кнопкой отмены.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
+    )

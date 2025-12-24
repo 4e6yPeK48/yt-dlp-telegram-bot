@@ -13,6 +13,7 @@ from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import router, logger
+from bot.handlers.callbacks import build_cancel_kb
 from utils.log_helpers import log_info, log_exception
 from bot.handlers.commands import cmd_start, cmd_help, cmd_settings, cmd_history
 from bot.keyboards import build_download_choice_kb, build_results_kb
@@ -253,9 +254,7 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     async def on_error():
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")
 
-    cancel_kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
-    )
+    cancel_kb = build_cancel_kb()
     status_msg = await msg.answer("⏳ Скачиваю, подождите", reply_markup=cancel_kb)
 
     async def _run_and_cleanup():
