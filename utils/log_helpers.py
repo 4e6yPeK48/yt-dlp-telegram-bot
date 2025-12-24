@@ -28,6 +28,19 @@ def _format_ctx(
     url: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> str:
+    """
+    Форматирует контекст для логирования.
+
+    Args:
+        user_id (Optional[int]): Идентификатор пользователя.
+        chat_id (Optional[int]): Идентификатор чата.
+        mode (Optional[str]): Режим работы.
+        url (Optional[str]): URL-адрес.
+        extra (Optional[Dict[str, Any]]): Дополнительные параметры.
+
+    Returns:
+        str: Отформатированная строка контекста.
+    """
     parts: list[str] = []
     if user_id is not None:
         parts.append(f"user={user_id}")
@@ -54,6 +67,23 @@ def log_info(
     extra: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> None:
+    """
+    Логирует информационное сообщение с контекстом.
+
+    Args:
+        logger (logging.Logger): Логгер для записи сообщений.
+        msg (str): Сообщение для логирования.
+        *args: Дополнительные позиционные аргументы для логгера.
+        user_id (Optional[int]): Идентификатор пользователя.
+        chat_id (Optional[int]): Идентификатор чата.
+        mode (Optional[str]): Режим работы.
+        url (Optional[str]): URL-адрес.
+        extra (Optional[Dict[str, Any]]): Дополнительные параметры.
+        **kwargs: Дополнительные именованные аргументы для логгера.
+
+    Returns:
+        None
+    """
     logger.info(msg + _format_ctx(user_id, chat_id, mode, url, extra), *args, **kwargs)
 
 
@@ -68,6 +98,23 @@ def log_warning(
     extra: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> None:
+    """
+    Логирует предупреждающее сообщение с контекстом.
+
+    Args:
+        logger (logging.Logger): Логгер для записи сообщений.
+        msg (str): Сообщение для логирования.
+        *args: Дополнительные позиционные аргументы для логгера.
+        user_id (Optional[int]): Идентификатор пользователя.
+        chat_id (Optional[int]): Идентификатор чата.
+        mode (Optional[str]): Режим работы.
+        url (Optional[str]): URL-адрес.
+        extra (Optional[Dict[str, Any]]): Дополнительные параметры.
+        **kwargs: Дополнительные именованные аргументы для логгера.
+
+    Returns:
+        None
+    """
     logger.warning(msg + _format_ctx(user_id, chat_id, mode, url, extra), *args, **kwargs)
 
 
@@ -82,6 +129,23 @@ def log_error(
     extra: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> None:
+    """
+    Логирует сообщение об ошибке с контекстом.
+
+    Args:
+        logger (logging.Logger): Логгер для записи сообщений.
+        msg (str): Сообщение для логирования.
+        *args: Дополнительные позиционные аргументы для логгера.
+        user_id (Optional[int]): Идентификатор пользователя.
+        chat_id (Optional[int]): Идентификатор чата.
+        mode (Optional[str]): Режим работы.
+        url (Optional[str]): URL-адрес.
+        extra (Optional[Dict[str, Any]]): Дополнительные параметры.
+        **kwargs: Дополнительные именованные аргументы для логгера.
+
+    Returns:
+        None
+    """
     logger.error(msg + _format_ctx(user_id, chat_id, mode, url, extra), *args, **kwargs)
 
 
@@ -96,18 +160,24 @@ def log_debug(
     extra: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> None:
-    logger.debug(msg + _format_ctx(user_id, chat_id, mode, url, extra), *args, **kwargs)
-
-
-def _current_exception_marked() -> Optional[BaseException]:
     """
-    Возвращает текущее исключение из стека вызовов.
+    Логирует отладочное сообщение с контекстом.
+
+    Args:
+        logger (logging.Logger): Логгер для записи сообщений.
+        msg (str): Сообщение для логирования.
+        *args: Дополнительные позиционные аргументы для логгера.
+        user_id (Optional[int]): Идентификатор пользователя.
+        chat_id (Optional[int]): Идентификатор чата.
+        mode (Optional[str]): Режим работы.
+        url (Optional[str]): URL-адрес.
+        extra (Optional[Dict[str, Any]]): Дополнительные параметры.
+        **kwargs: Дополнительные именованные аргументы для логгера.
 
     Returns:
-        Optional[BaseException]: Текущее исключение или None.
+        None
     """
-    exc = exc_info()[1]
-    return exc
+    logger.debug(msg + _format_ctx(user_id, chat_id, mode, url, extra), *args, **kwargs)
 
 
 def log_exception(
@@ -121,6 +191,23 @@ def log_exception(
     extra: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> None:
+    """
+    Логирует сообщение об исключении с контекстом.
+
+    Args:
+        logger (logging.Logger): Логгер для записи сообщений.
+        msg (str): Сообщение для логирования.
+        *args: Дополнительные позиционные аргументы для логгера.
+        user_id (Optional[int]): Идентификатор пользователя.
+        chat_id (Optional[int]): Идентификатор чата.
+        mode (Optional[str]): Режим работы.
+        url (Optional[str]): URL-адрес.
+        extra (Optional[Dict[str, Any]]): Дополнительные параметры.
+        **kwargs: Дополнительные именованные аргументы для логгера.
+
+    Returns:
+        None
+    """
     exc = _current_exception_marked()
     ctx = _format_ctx(user_id, chat_id, mode, url, extra)
 
@@ -135,3 +222,14 @@ def log_exception(
             pass
 
     logger.exception(msg + ctx, *args, **kwargs)
+
+
+def _current_exception_marked() -> Optional[BaseException]:
+    """
+    Возвращает текущее исключение из стека вызовов.
+
+    Returns:
+        Optional[BaseException]: Текущее исключение или None.
+    """
+    exc = exc_info()[1]
+    return exc

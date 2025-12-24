@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os
 import tempfile
 from typing import Dict
@@ -19,6 +18,19 @@ from bot.dispatcher import logger
 
 
 async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path: str, max_bytes: int) -> bool:
+    """
+    Загружает файл по URL и сохраняет его во временный файл, затем перемещает в dest_path.
+    Проверяет размер файла и логирует события.
+
+    Args:
+        session (aiohttp.ClientSession): Сессия для выполнения HTTP-запросов.
+        url (str): URL для загрузки.
+        dest_path (str): Путь для сохранения загруженного файла.
+        max_bytes (int): Максимально допустимый размер файла в байтах.
+
+    Returns:
+        bool: True, если загрузка и сохранение прошли успешно, иначе False.
+    """
     tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(dest_path), prefix=".tmp_cookie_")
     os.close(tmp_fd)
     try:
@@ -63,6 +75,17 @@ async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path:
 
 
 async def refresh_server_cookies_once(sources: Dict[str, str] = None) -> Dict[str, bool]:
+    """
+    Однократное обновление серверных cookies из заданных источников.
+
+    Args:
+        sources (Dict[str, str], optional): Словарь источников для загрузки cookies
+            в формате {ключ: URL}. Ключ может быть доменом или именем файла.
+            Если не задан, используются SERVER_COOKIES_SOURCES из конфигурации.
+
+    Returns:
+        Dict[str, bool]: Словарь с результатами загрузки в формате {имя_файла: успешно (bool)}.
+    """
     out: Dict[str, bool] = {}
     sources = sources or SERVER_COOKIES_SOURCES or {}
     if not sources:
@@ -106,6 +129,16 @@ async def refresh_server_cookies_once(sources: Dict[str, str] = None) -> Dict[st
 
 
 async def start_periodic_refresher(interval: int = None, stop_event: asyncio.Event = None) -> None:
+    """
+    Запускает периодический рефрешер серверных cookies.
+
+    Args:
+        interval (int, optional): Интервал в секундах между обновлениями.
+        stop_event (asyncio.Event, optional): Событие для остановки рефрешера.
+
+    Returns:
+        None
+    """
     interval = interval or SERVER_COOKIES_REFRESH_INTERVAL_SEC
     stop_event = stop_event or asyncio.Event()
     log_info(logger, "server_cookies: рефрешер запущен", extra={"interval_sec": interval})

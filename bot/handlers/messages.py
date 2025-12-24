@@ -13,7 +13,7 @@ from yt_dlp import YoutubeDL  # type: ignore[import-untyped]
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
 from bot.dispatcher import router, logger
-from utils.log_helpers import log_info, log_warning, log_exception
+from utils.log_helpers import log_info, log_exception
 from bot.handlers.commands import cmd_start, cmd_help, cmd_settings, cmd_history
 from bot.keyboards import build_download_choice_kb, build_results_kb
 from config import (
@@ -28,9 +28,7 @@ from services.ytdlp import (
     search_tracks,
 )
 from storage.state import (
-    get_searches,
     set_searches,
-    pop_searches,
     get_awaiting,
     pop_awaiting,
     get_user_mode,

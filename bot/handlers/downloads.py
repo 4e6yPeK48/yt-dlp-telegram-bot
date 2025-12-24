@@ -1,9 +1,8 @@
-# File: final_project/bot/handlers/downloads.py
 from asyncio import CancelledError
 
 from yt_dlp.utils import DownloadError  # type: ignore[import-untyped]
 
-from bot.dispatcher import logger, download_sem
+from bot.dispatcher import logger
 from utils.log_helpers import log_info, log_warning, log_exception
 from services.ytdlp import download_media_to_temp, extract_basic_info, FileTooLargeError
 from services.telegram import send_by_mode

@@ -27,14 +27,12 @@ from services.telegram import (
 )
 from services.ytdlp import (
     decide_effective_mode,
-    download_media_to_temp,
     find_server_cookies_for_url,
 )
 from storage.state import (
     get_searches,
     get_awaiting,
     get_pending,
-    pop_pending,
     get_user_mode,
     set_user_mode,
     begin_user_download,
@@ -331,7 +329,6 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
     status_msg = await bot.send_message(chat_id, "⏳ Скачиваю (серверные cookies), подождите", reply_markup=cancel_kb)
 
     async def on_cookies_required_inner():
-        # if server cookies still fail, ask user for their cookies
         remember_cookie_request(user_id, kind="download", url=url)
         await bot.send_message(
             chat_id,

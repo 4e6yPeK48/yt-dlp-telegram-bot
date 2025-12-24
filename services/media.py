@@ -1,5 +1,4 @@
 import io
-import logging
 import os
 from asyncio import to_thread
 from typing import List, Optional, Set

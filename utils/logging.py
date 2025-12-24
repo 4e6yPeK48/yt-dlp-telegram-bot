@@ -20,6 +20,18 @@ def make_rotating(
     level: int,
     fmt: logging.Formatter,
 ) -> TimedRotatingFileHandler:
+    """
+    Создаёт ротационный файловый обработчик логов.
+
+    Args:
+        log_dir (str): Директория для файлов логов.
+        path (str): Имя файла лога.
+        level (int): Уровень логирования.
+        fmt (logging.Formatter): Форматтер для логов.
+
+    Returns:
+        TimedRotatingFileHandler: Настроенный обработчик логов.
+    """
     handler = TimedRotatingFileHandler(
         filename=os.path.join(log_dir, path),
         when="midnight",

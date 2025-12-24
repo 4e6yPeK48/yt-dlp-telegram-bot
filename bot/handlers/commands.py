@@ -14,6 +14,9 @@ async def cmd_start(msg: Message) -> None:
 
     Args:
         msg (Message): Входящее сообщение.
+
+    Returns:
+        None
     """
     uid, _ = get_user_and_chat(msg)
     if uid is not None:
@@ -39,6 +42,9 @@ async def cmd_help(msg: Message) -> None:
 
     Args:
         msg (Message): Сообщение команды.
+
+    Returns:
+        None
     """
     user_id = msg.from_user.id if msg.from_user else None
     log_info(logger, "Команда /help", user_id=user_id)
@@ -66,6 +72,9 @@ async def cmd_settings(msg: Message) -> None:
 
     Args:
         msg (Message): Сообщение команды.
+
+    Returns:
+        None
     """
     user_id, _ = get_user_and_chat(msg)
     if user_id is None:
@@ -87,6 +96,9 @@ async def cmd_history(msg: Message) -> None:
 
     Args:
         msg (Message): Сообщение команды.
+
+    Returns:
+        None
     """
     user_id, _ = get_user_and_chat(msg)
     if user_id is None:
