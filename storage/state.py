@@ -119,7 +119,9 @@ class StateStore:
     def pop_pending(self, token: str) -> Optional[Dict[str, Any]]:
         return self._pending.pop(token, None)
 
-    def add_download_history(self, user_id: int, entry: Dict[str, Any], max_items: int = 200) -> None:
+    def add_download_history(
+        self, user_id: int, entry: Dict[str, Any], max_items: int = 200
+    ) -> None:
         if user_id not in self._history:
             self._history[user_id] = []
         self._history[user_id].insert(0, {"time": int(time.time()), **entry})
@@ -154,7 +156,11 @@ class StateStore:
     def cancel_download_task(self, user_id: int) -> bool:
         t = self._download_tasks.pop(user_id, None)
         if t:
-            log_info(logger, "Отмена запроса: попытка отменить выполняемую задачу загрузки", user_id=user_id)
+            log_info(
+                logger,
+                "Отмена запроса: попытка отменить выполняемую задачу загрузки",
+                user_id=user_id,
+            )
             try:
                 t.cancel()
                 log_info(logger, "Задача загрузки отменена", user_id=user_id)
@@ -166,7 +172,11 @@ class StateStore:
                     extra={"err": str(e)},
                 )
             return True
-        log_info(logger, "Отмена запроса: активных задач загрузки не найдено", user_id=user_id)
+        log_info(
+            logger,
+            "Отмена запроса: активных задач загрузки не найдено",
+            user_id=user_id,
+        )
         return False
 
 
@@ -246,7 +256,9 @@ def slice_page(
     return _store.slice_page(items, page, page_size)
 
 
-def remember_cookie_request(user_id: int, kind: str, url: Optional[str] = None, mode: Optional[str] = None) -> None:
+def remember_cookie_request(
+    user_id: int, kind: str, url: Optional[str] = None, mode: Optional[str] = None
+) -> None:
     """Сохраняет ожидание cookies.
 
     Args:
@@ -397,7 +409,9 @@ def pop_awaiting(user_id: int) -> Optional[Dict[str, Any]]:
     return _store.pop_awaiting(user_id)
 
 
-def add_download_history(user_id: int, entry: Dict[str, Any], max_items: int = 200) -> None:
+def add_download_history(
+    user_id: int, entry: Dict[str, Any], max_items: int = 200
+) -> None:
     """
     Добавляет запись в историю загрузок пользователя.
 

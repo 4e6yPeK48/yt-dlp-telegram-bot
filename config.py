@@ -13,7 +13,9 @@ BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 TELETHON_API_ID: Optional[int] = int(os.getenv("TELETHON_API_ID", "0")) or None
 TELETHON_API_HASH: Optional[str] = os.getenv("TELETHON_API_HASH") or None
 TELETHON_SESSION: str = os.getenv("TELETHON_SESSION", "telethon.session")
-TELETHON_FALLBACK_ENABLED: bool = os.getenv("TELETHON_FALLBACK_ENABLED", "True").lower() in ("1", "true", "yes")
+TELETHON_FALLBACK_ENABLED: bool = os.getenv(
+    "TELETHON_FALLBACK_ENABLED", "True"
+).lower() in ("1", "true", "yes")
 
 
 # Search and pagination
@@ -73,7 +75,9 @@ except Exception:
     SERVER_COOKIES_SOURCES = SERVER_COOKIES_SOURCES
 
 # Refresh interval in seconds (default 1 hour)
-SERVER_COOKIES_REFRESH_INTERVAL_SEC: int = int(os.getenv("SERVER_COOKIES_REFRESH_INTERVAL_SEC", "3600"))
+SERVER_COOKIES_REFRESH_INTERVAL_SEC: int = int(
+    os.getenv("SERVER_COOKIES_REFRESH_INTERVAL_SEC", "3600")
+)
 
 # Ensure dir exists (already present in file)
 os.makedirs(SERVER_COOKIES_DIR, exist_ok=True)

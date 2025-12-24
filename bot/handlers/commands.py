@@ -113,4 +113,6 @@ async def cmd_history(msg: Message) -> None:
     if not items:
         await msg.answer("ℹ️ История пуста.", reply_markup=build_main_reply_kb())
         return
-    await msg.answer("📜 Ваша история загрузок:", reply_markup=build_history_kb(uid).as_markup())
+    await msg.answer(
+        "📜 Ваша история загрузок:", reply_markup=build_history_kb(uid).as_markup()
+    )

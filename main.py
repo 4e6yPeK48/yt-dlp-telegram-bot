@@ -32,7 +32,9 @@ async def main() -> None:
             if telethon_ready:
                 log_info(logger, "Telethon-fallback успешно инициализирован")
             else:
-                log_warning(logger, "Telethon-fallback включён, но клиент не инициализирован")
+                log_warning(
+                    logger, "Telethon-fallback включён, но клиент не инициализирован"
+                )
         except RuntimeError as e:
             log_warning(
                 logger,
@@ -60,7 +62,11 @@ async def main() -> None:
         try:
             await telethon_client.disconnect_client()
         except Exception as e:
-            log_exception(logger, "Ошибка при отключении Telethon-клиента при завершении работы", extra={"err": str(e)})
+            log_exception(
+                logger,
+                "Ошибка при отключении Telethon-клиента при завершении работы",
+                extra={"err": str(e)},
+            )
         log_info(logger, "Бот завершил работу")
 
 

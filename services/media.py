@@ -149,7 +149,11 @@ def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
             log_warning(
                 logger,
                 f"Не удалось сжать обложку, пропускаю",
-                extra={"limit": THUMB_MAX_BYTES, "min_q": min_q, "last_size": last_size or -1},
+                extra={
+                    "limit": THUMB_MAX_BYTES,
+                    "min_q": min_q,
+                    "last_size": last_size or -1,
+                },
             )
             return None
     except Exception as e:

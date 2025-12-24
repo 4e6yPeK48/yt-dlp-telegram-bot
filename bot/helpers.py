@@ -55,7 +55,9 @@ async def safe_delete_msg(msg: Optional[Message]) -> None:
         await msg.delete()
 
 
-def get_user_and_chat(cb_or_msg: Union[CallbackQuery, Message]) -> Tuple[Optional[int], Optional[int]]:
+def get_user_and_chat(
+    cb_or_msg: Union[CallbackQuery, Message],
+) -> Tuple[Optional[int], Optional[int]]:
     """
     Извлекает user_id и chat_id из CallbackQuery или Message.
 
@@ -66,7 +68,9 @@ def get_user_and_chat(cb_or_msg: Union[CallbackQuery, Message]) -> Tuple[Optiona
     """
     if isinstance(cb_or_msg, Message):
         user_id = cb_or_msg.from_user.id if cb_or_msg.from_user is not None else None
-        chat_id = cb_or_msg.chat.id if getattr(cb_or_msg, "chat", None) is not None else None
+        chat_id = (
+            cb_or_msg.chat.id if getattr(cb_or_msg, "chat", None) is not None else None
+        )
         return user_id, chat_id
 
     cb = cb_or_msg

@@ -115,7 +115,9 @@ def log_warning(
     Returns:
         None
     """
-    logger.warning(msg + _format_ctx(user_id, chat_id, mode, url, extra), *args, **kwargs)
+    logger.warning(
+        msg + _format_ctx(user_id, chat_id, mode, url, extra), *args, **kwargs
+    )
 
 
 def log_error(

@@ -76,7 +76,9 @@ async def handle_text(msg: Message, bot: Bot) -> None:
         await msg.answer("⚠️ Пустой запрос.")
         return
     if is_url(url):
-        log_info(logger, "Обнаружена ссылка. Показываю карточку выбора", user_id=uid, url=url)
+        log_info(
+            logger, "Обнаружена ссылка. Показываю карточку выбора", user_id=uid, url=url
+        )
         if uid is None:
             log_info(logger, "Не удалось определить пользователя для ссылки.")
             await msg.answer("⚠️ Не удалось определить пользователя.")
@@ -114,7 +116,9 @@ async def handle_text(msg: Message, bot: Bot) -> None:
             "Пришлите файл cookies.txt — повторю поиск с cookies."
         )
     except Exception as e:
-        log_exception(logger, "Ошибка поиска", user_id=uid, extra={"query": query, "err": str(e)})
+        log_exception(
+            logger, "Ошибка поиска", user_id=uid, extra={"query": query, "err": str(e)}
+        )
         await msg.answer("❌ Ошибка поиска. Попробуйте позже.")
 
 
@@ -150,25 +154,52 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     name_l = (doc.file_name or "").lower()
     ext = os.path.splitext(name_l)[1]
     size = doc.file_size or 0
-    log_info(logger, "Получен файл cookies", user_id=user_id, extra={"file_name": doc.file_name, "size": size})
+    log_info(
+        logger,
+        "Получен файл cookies",
+        user_id=user_id,
+        extra={"file_name": doc.file_name, "size": size},
+    )
     if ext not in ALLOWED_COOKIES_EXTS:
-        log_info(logger, "Некорректный формат файла cookies", user_id=user_id, extra={"ext": ext})
+        log_info(
+            logger,
+            "Некорректный формат файла cookies",
+            user_id=user_id,
+            extra={"ext": ext},
+        )
         await msg.answer("⚠️ Нужен файл cookies в формате Netscape: cookies.txt.")
         return
     if size and size > COOKIES_MAX_BYTES:
         lim_mb = COOKIES_MAX_BYTES / (1024 * 1024)
         cur_mb = size / (1024 * 1024)
-        log_info(logger, "Слишком большой файл cookies", user_id=user_id, extra={"cur_mb": cur_mb, "lim_mb": lim_mb})
-        await msg.answer(f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ.")
+        log_info(
+            logger,
+            "Слишком большой файл cookies",
+            user_id=user_id,
+            extra={"cur_mb": cur_mb, "lim_mb": lim_mb},
+        )
+        await msg.answer(
+            f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
+        )
         return
 
     try:
         await bot.download(doc, destination=cookies_path)
         with suppress(Exception):
             real_size = await to_thread(os.path.getsize, cookies_path)
-            log_info(logger, "Cookies сохранены", user_id=user_id, extra={"path": cookies_path, "size": real_size})
+            log_info(
+                logger,
+                "Cookies сохранены",
+                user_id=user_id,
+                extra={"path": cookies_path, "size": real_size},
+            )
     except Exception as e:
-        log_exception(logger, "Не удалось сохранить файл cookies", user_id=user_id, extra={"err": str(e)})
+        log_exception(
+            logger,
+            "Не удалось сохранить файл cookies",
+            user_id=user_id,
+            extra={"err": str(e)},
+        )
         await msg.answer("❌ Не удалось сохранить cookies.txt.")
         return
 
@@ -185,7 +216,9 @@ async def handle_document(msg: Message, bot: Bot) -> None:
                 user_id=user_id,
                 extra={"cur_mb": cur_mb, "lim_mb": lim_mb},
             )
-            await msg.answer(f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ.")
+            await msg.answer(
+                f"⚠️ Слишком большой cookies.txt ({cur_mb:.1f} МБ). Максимум {lim_mb:.0f} МБ."
+            )
             return
 
     log_info(logger, "Повтор операции с cookies", user_id=user_id)
@@ -195,15 +228,24 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     if pending_kind == "search":
         query_any = pending.get("query")
         if not isinstance(query_any, str) or not query_any.strip():
-            log_info(logger, "Нет запроса для повтора поиска с cookies", user_id=user_id)
+            log_info(
+                logger, "Нет запроса для повтора поиска с cookies", user_id=user_id
+            )
             await msg.answer("❌ Нет запроса для повтора поиска.")
             return
         query = sanitize_query(query_any)
-        log_info(logger, "Повтор поиска с cookies", user_id=user_id, extra={"query": query})
+        log_info(
+            logger, "Повтор поиска с cookies", user_id=user_id, extra={"query": query}
+        )
         pop_awaiting(user_id)
         try:
             results = await search_tracks(query, cookies_path=cookies_path)
-            log_info(logger, "Поиск с cookies завершён", user_id=user_id, extra={"found": len(results)})
+            log_info(
+                logger,
+                "Поиск с cookies завершён",
+                user_id=user_id,
+                extra={"found": len(results)},
+            )
             set_searches(user_id, {"results": results, "page": 0})
             if not results:
                 log_info(logger, "Ничего не найдено с cookies", user_id=user_id)
@@ -213,7 +255,12 @@ async def handle_document(msg: Message, bot: Bot) -> None:
             log_info(logger, "Показываю результаты поиска с cookies", user_id=user_id)
             await msg.answer("📋 Результаты поиска:", reply_markup=kb.as_markup())
         except Exception as e:
-            log_exception(logger, "Ошибка поиска с cookies", user_id=user_id, extra={"query": query, "err": str(e)})
+            log_exception(
+                logger,
+                "Ошибка поиска с cookies",
+                user_id=user_id,
+                extra={"query": query, "err": str(e)},
+            )
             await msg.answer("❌ Не удалось выполнить поиск даже с cookies.")
         return
 
@@ -241,12 +288,18 @@ async def handle_document(msg: Message, bot: Bot) -> None:
     pop_awaiting(user_id)
     lock = await begin_user_download(user_id)
     if not lock:
-        log_info(logger, "Не удалось начать загрузку с cookies: другая загрузка идёт", user_id=user_id)
+        log_info(
+            logger,
+            "Не удалось начать загрузку с cookies: другая загрузка идёт",
+            user_id=user_id,
+        )
         await msg.answer("⏳ Идёт другая загрузка. Дождитесь завершения.")
         return
 
     async def on_nothing() -> None:
-        await msg.answer("😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности).")
+        await msg.answer(
+            "😕 Не удалось скачать даже с cookies (возможно, превышен лимит длительности)."
+        )
 
     async def on_error() -> None:
         await msg.answer("❌ Не удалось скачать даже с cookies. Скипаю.")

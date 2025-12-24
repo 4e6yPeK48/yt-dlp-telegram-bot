@@ -182,7 +182,9 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
     await safe_answer(cb)
 
     cancel_kb = build_cancel_kb()
-    status_msg = await bot.send_message(chat_id, "⏳ Скачиваю, подождите", reply_markup=cancel_kb)
+    status_msg = await bot.send_message(
+        chat_id, "⏳ Скачиваю, подождите", reply_markup=cancel_kb
+    )
 
     cookies_path = get_user_cookies_path(user_id)
 
@@ -216,7 +218,9 @@ async def cb_download_choice(cb: CallbackQuery, bot: Bot) -> None:
         )
 
     async def on_error() -> None:
-        await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
+        await bot.send_message(
+            chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
+        )
 
     async def _run_and_cleanup() -> None:
         try:
@@ -305,7 +309,13 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
 
     mode = decide_effective_mode(get_user_mode(user_id), url)
 
-    log_info(logger, "Попытка загрузки с серверными cookies", user_id=user_id, mode=mode, url=url)
+    log_info(
+        logger,
+        "Попытка загрузки с серверными cookies",
+        user_id=user_id,
+        mode=mode,
+        url=url,
+    )
 
     message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
     await safe_edit_markup(message, None)
@@ -324,7 +334,9 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
     await safe_answer(cb)
 
     cancel_kb = build_cancel_kb()
-    status_msg = await bot.send_message(chat_id, "⏳ Скачиваю (серверные cookies), подождите", reply_markup=cancel_kb)
+    status_msg = await bot.send_message(
+        chat_id, "⏳ Скачиваю (серверные cookies), подождите", reply_markup=cancel_kb
+    )
 
     async def on_cookies_required_inner() -> None:
         remember_cookie_request(user_id, kind="download", url=url)
@@ -340,7 +352,9 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
         )
 
     async def on_error_inner() -> None:
-        await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
+        await bot.send_message(
+            chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
+        )
 
     async def _run_and_cleanup() -> None:
         try:
@@ -506,13 +520,19 @@ async def handle_pick(cb: CallbackQuery, bot: Bot) -> None:
         with suppress(Exception):
             pop_searches(cb.from_user.id)
         # narrow message for typed helpers
-        message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+        message: Optional[Message] = (
+            cb.message if isinstance(cb.message, Message) else None
+        )
         with suppress(Exception):
             await safe_delete_msg(message)
         await safe_edit_markup(message, None)
 
         _, chat_id = get_user_and_chat(cb)
-        if chat_id is not None and cb.message is not None and isinstance(cb.message, Message):
+        if (
+            chat_id is not None
+            and cb.message is not None
+            and isinstance(cb.message, Message)
+        ):
             await send_info_card(
                 bot,
                 chat_id,
@@ -547,7 +567,9 @@ async def cb_history_open(cb: CallbackQuery) -> None:
     kb = build_history_kb(user_id)
     if cb.message is not None and isinstance(cb.message, Message):
         with suppress(Exception):
-            await cb.message.answer("📜 Ваша история загрузок:", reply_markup=kb.as_markup())
+            await cb.message.answer(
+                "📜 Ваша история загрузок:", reply_markup=kb.as_markup()
+            )
 
 
 @router.callback_query(F.data == "history:close")
@@ -668,7 +690,11 @@ async def cb_history_show(cb: CallbackQuery) -> None:
         t = entry.get("time")
         from datetime import datetime
 
-        time_str = datetime.fromtimestamp(t).isoformat(sep=" ", timespec="minutes") if t else "—"
+        time_str = (
+            datetime.fromtimestamp(t).isoformat(sep=" ", timespec="minutes")
+            if t
+            else "—"
+        )
         text = (
             f"📦 История загрузки:\n\n"
             f"Название: {title}\n"
@@ -678,7 +704,11 @@ async def cb_history_show(cb: CallbackQuery) -> None:
             f"Время: {time_str}"
         )
         _, chat_id = get_user_and_chat(cb)
-        if chat_id is not None and cb.message is not None and isinstance(cb.message, Message):
+        if (
+            chat_id is not None
+            and cb.message is not None
+            and isinstance(cb.message, Message)
+        ):
             await cb.message.answer(text)
         return
 
@@ -707,7 +737,9 @@ async def cb_download_cancel(cb: CallbackQuery) -> None:
         extra={"result": "cancelled" if cancelled else "no_task"},
     )
     if cancelled:
-        message: Optional[Message] = cb.message if isinstance(cb.message, Message) else None
+        message: Optional[Message] = (
+            cb.message if isinstance(cb.message, Message) else None
+        )
         await safe_edit_markup(message, None)
         await safe_delete_msg(message)
         await safe_answer(cb, "❌ Загрузка отменена.")
@@ -723,5 +755,7 @@ def build_cancel_kb() -> InlineKeyboardMarkup:
         InlineKeyboardMarkup: Клавиатура с кнопкой отмены.
     """
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]]
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="download:cancel")]
+        ]
     )

@@ -17,7 +17,9 @@ from utils.log_helpers import log_info, log_warning, log_exception
 from bot.dispatcher import logger
 
 
-async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path: str, max_bytes: int) -> bool:
+async def _download_to_path(
+    session: aiohttp.ClientSession, url: str, dest_path: str, max_bytes: int
+) -> bool:
     """
     Загружает файл по URL и сохраняет его во временный файл, затем перемещает в dest_path.
     Проверяет размер файла и логирует события.
@@ -31,12 +33,19 @@ async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path:
     Returns:
         bool: True, если загрузка и сохранение прошли успешно, иначе False.
     """
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(dest_path), prefix=".tmp_cookie_")
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(dest_path), prefix=".tmp_cookie_"
+    )
     os.close(tmp_fd)
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
             if resp.status != 200:
-                log_warning(logger, "server_cookies: неожиданный статус", url=url, extra={"status": resp.status})
+                log_warning(
+                    logger,
+                    "server_cookies: неожиданный статус",
+                    url=url,
+                    extra={"status": resp.status},
+                )
                 return False
             size = 0
             with open(tmp_path, "wb") as f:
@@ -65,16 +74,25 @@ async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path:
             os.chmod(dest_path, 0o600)
         except Exception:
             pass
-        log_info(logger, "server_cookies: сохранено", extra={"size": size, "path": dest_path})
+        log_info(
+            logger, "server_cookies: сохранено", extra={"size": size, "path": dest_path}
+        )
         return True
     except Exception as e:
-        log_exception(logger, "server_cookies: ошибка при загрузке", url=url, extra={"err": str(e)})
+        log_exception(
+            logger,
+            "server_cookies: ошибка при загрузке",
+            url=url,
+            extra={"err": str(e)},
+        )
         with suppress(Exception):
             os.remove(tmp_path)
         return False
 
 
-async def refresh_server_cookies_once(sources: Optional[Dict[str, str]] = None) -> Dict[str, bool]:
+async def refresh_server_cookies_once(
+    sources: Optional[Dict[str, str]] = None,
+) -> Dict[str, bool]:
     """
     Однократное обновление серверных cookies из заданных источников.
 
@@ -107,7 +125,11 @@ async def refresh_server_cookies_once(sources: Optional[Dict[str, str]] = None) 
                 ok = await _download_to_path(session, url, dest, COOKIES_MAX_BYTES)
                 out[fname] = bool(ok)
             except Exception:
-                log_exception(logger, "server_cookies: неожиданная ошибка", extra={"filename": fname})
+                log_exception(
+                    logger,
+                    "server_cookies: неожиданная ошибка",
+                    extra={"filename": fname},
+                )
                 out[fname] = False
             handled_fnames.add(fname)
 
@@ -122,13 +144,19 @@ async def refresh_server_cookies_once(sources: Optional[Dict[str, str]] = None) 
                 ok = await _download_to_path(session, url, dest, COOKIES_MAX_BYTES)
                 out[mapped_fname] = bool(ok)
             except Exception:
-                log_exception(logger, "server_cookies: неожиданная ошибка", extra={"filename": mapped_fname})
+                log_exception(
+                    logger,
+                    "server_cookies: неожиданная ошибка",
+                    extra={"filename": mapped_fname},
+                )
                 out[mapped_fname] = False
 
     return out
 
 
-async def start_periodic_refresher(interval: Optional[int] = None, stop_event: Optional[asyncio.Event] = None) -> None:
+async def start_periodic_refresher(
+    interval: Optional[int] = None, stop_event: Optional[asyncio.Event] = None
+) -> None:
     """
     Запускает периодический рефрешер серверных cookies.
 
@@ -141,7 +169,9 @@ async def start_periodic_refresher(interval: Optional[int] = None, stop_event: O
     """
     interval = interval or SERVER_COOKIES_REFRESH_INTERVAL_SEC
     stop_event = stop_event or asyncio.Event()
-    log_info(logger, "server_cookies: рефрешер запущен", extra={"interval_sec": interval})
+    log_info(
+        logger, "server_cookies: рефрешер запущен", extra={"interval_sec": interval}
+    )
     try:
         while not stop_event.is_set():
             try:

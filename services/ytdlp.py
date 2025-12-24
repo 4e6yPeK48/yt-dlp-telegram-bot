@@ -87,7 +87,9 @@ class YTDLPExtractor:
     Извлекатель информации с помощью yt-dlp.
     """
 
-    async def ytdlp_extract(self, url_or_query: str, ydl_opts: Dict[str, Any], download: bool) -> Dict[str, Any]:
+    async def ytdlp_extract(
+        self, url_or_query: str, ydl_opts: Dict[str, Any], download: bool
+    ) -> Dict[str, Any]:
         """Запускает yt-dlp.extract_info в отдельном потоке с таймаутом.
 
         Args:
@@ -102,34 +104,57 @@ class YTDLPExtractor:
             asyncio.TimeoutError: При превышении YTDLP_THREAD_TIMEOUT.
             Exception: При других ошибках выполнения yt-dlp.
         """
-        log_debug(logger, "ytdlp_extract: запуск", url=url_or_query, extra={"download": download})
+        log_debug(
+            logger,
+            "ytdlp_extract: запуск",
+            url=url_or_query,
+            extra={"download": download},
+        )
 
         def _run() -> Dict[str, Any]:
             with YoutubeDL(ydl_opts) as ydl:
                 return ydl.extract_info(url_or_query, download=download)
 
         try:
-            result = await asyncio.wait_for(asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_run), timeout=YTDLP_THREAD_TIMEOUT
+            )
             log_debug(logger, "ytdlp_extract: завершено", url=url_or_query)
             return result
         except asyncio.TimeoutError:
-            log_error(logger, "ytdlp_extract: таймаут", url=url_or_query, extra={"timeout_sec": YTDLP_THREAD_TIMEOUT})
+            log_error(
+                logger,
+                "ytdlp_extract: таймаут",
+                url=url_or_query,
+                extra={"timeout_sec": YTDLP_THREAD_TIMEOUT},
+            )
             raise
         except Exception as e:
-            log_exception(logger, "ytdlp_extract: исключение", url=url_or_query, extra={"err": str(e)})
+            log_exception(
+                logger,
+                "ytdlp_extract: исключение",
+                url=url_or_query,
+                extra={"err": str(e)},
+            )
             raise
 
-    async def search_tracks(self, query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def search_tracks(
+        self, query: str, cookies_path: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         ydl_opts: Dict[str, Any] = {
             "quiet": True,
             "skip_download": True,
             "noplaylist": True,
             "default_search": "ytsearch",
         }
-        if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):  # mypy: ignore
+        if cookies_path and await asyncio.to_thread(
+            os.path.exists, cookies_path
+        ):  # mypy: ignore
             ydl_opts["cookiefile"] = cookies_path
 
-        info = await self.ytdlp_extract(f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False)
+        info = await self.ytdlp_extract(
+            f"ytsearch{MAX_RESULTS}:{query}", ydl_opts, download=False
+        )
         entries = info.get("entries") or []
         results: List[Dict[str, Any]] = []
         for e in entries:
@@ -141,10 +166,14 @@ class YTDLPExtractor:
                 url = f"https://www.youtube.com/watch?v={e['id']}"
             title = e.get("title") or "Без названия"
             channel = e.get("uploader") or e.get("channel") or ""
-            results.append({"title": title, "url": url, "duration": duration, "channel": channel})
+            results.append(
+                {"title": title, "url": url, "duration": duration, "channel": channel}
+            )
         return results
 
-    async def extract_basic_info(self, url: str, cookies_path: Optional[str] = None) -> Dict[str, Any]:
+    async def extract_basic_info(
+        self, url: str, cookies_path: Optional[str] = None
+    ) -> Dict[str, Any]:
         ydl_opts: Dict[str, Any] = {
             "quiet": True,
             "skip_download": True,
@@ -152,7 +181,9 @@ class YTDLPExtractor:
             "playlist_items": "1",
             "logger": logging.getLogger("yt_dlp"),
         }
-        if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):  # mypy: ignore
+        if cookies_path and await asyncio.to_thread(
+            os.path.exists, cookies_path
+        ):  # mypy: ignore
             ydl_opts["cookiefile"] = cookies_path
 
         info = await self.ytdlp_extract(url, ydl_opts, download=False)
@@ -162,7 +193,12 @@ class YTDLPExtractor:
             if isinstance(entries, list) and entries:
                 item = entries[0]
         except Exception as e:
-            log_debug(logger, "extract_basic_info: не удалось выбрать первую запись", url=url, extra={"err": str(e)})
+            log_debug(
+                logger,
+                "extract_basic_info: не удалось выбрать первую запись",
+                url=url,
+                extra={"err": str(e)},
+            )
 
         def _pick_thumb(it: Dict[str, Any]) -> Optional[str]:
             t = it.get("thumbnail")
@@ -197,7 +233,12 @@ class YTDLPExtractor:
             channel = item.get("uploader") or item.get("channel") or ""
         thumbnail = _pick_thumb(item if isinstance(item, dict) else {})
 
-        return {"title": title, "duration": duration, "channel": channel, "thumbnail": thumbnail}
+        return {
+            "title": title,
+            "duration": duration,
+            "channel": channel,
+            "thumbnail": thumbnail,
+        }
 
     async def find_server_cookies_for_url(self, url: str) -> Optional[str]:
         try:
@@ -225,7 +266,9 @@ class YTDLPPostprocessor:
     def __init__(self, max_file_bytes: Optional[int] = None):
         self.max_file_bytes = max_file_bytes
 
-    def _postprocess_sync(self, tmpdir_: str, mode_: str, url: str) -> List[Tuple[str, Optional[str]]]:
+    def _postprocess_sync(
+        self, tmpdir_: str, mode_: str, url: str
+    ) -> List[Tuple[str, Optional[str]]]:
         """
         Синхронно обрабатывает скачанные файлы: перемещает в стабильную директорию, готовит миниатюры.
 
@@ -249,7 +292,10 @@ class YTDLPPostprocessor:
                 "Файлов найдено",
                 mode=mode_,
                 url=url,
-                extra={"media_count": len(media_files), "image_count": len(image_files)},
+                extra={
+                    "media_count": len(media_files),
+                    "image_count": len(image_files),
+                },
             )
             if not media_files:
                 shutil.rmtree(tmpdir_, ignore_errors=True)
@@ -282,7 +328,9 @@ class YTDLPPostprocessor:
                 t_src: Optional[str] = None
                 if possible_imgs:
                     with suppress(Exception):
-                        possible_imgs.sort(key=lambda p: os.path.getsize(p), reverse=True)
+                        possible_imgs.sort(
+                            key=lambda p: os.path.getsize(p), reverse=True
+                        )
                     t_src = possible_imgs[0]
 
                 t_dst: Optional[str] = None
@@ -290,7 +338,12 @@ class YTDLPPostprocessor:
                     moved = os.path.join(stable_dir, os.path.basename(t_src))
                     with suppress(Exception):
                         shutil.move(t_src, moved)
-                    log_info(logger, "Обрабатываю обложку", mode=mode_, extra={"thumb": moved})
+                    log_info(
+                        logger,
+                        "Обрабатываю обложку",
+                        mode=mode_,
+                        extra={"thumb": moved},
+                    )
                     try:
                         processed = process_thumbnail_sync(moved, stable_dir)
                     except Exception:
@@ -313,9 +366,15 @@ class YTDLPPostprocessor:
                         logger,
                         "Скачанный файл превышает максимально допустимый размер",
                         mode=mode_,
-                        extra={"size": size, "path": m_dst, "limit": self.max_file_bytes},
+                        extra={
+                            "size": size,
+                            "path": m_dst,
+                            "limit": self.max_file_bytes,
+                        },
                     )
-                    raise FileTooLargeError(f"File too large: {size} bytes (limit {self.max_file_bytes})")
+                    raise FileTooLargeError(
+                        f"File too large: {size} bytes (limit {self.max_file_bytes})"
+                    )
 
                 items_.append((m_dst, t_dst))
 
@@ -355,7 +414,11 @@ class YTDLPDownloader:
         try:
             if mode == "audio":
                 postprocessors = [
-                    {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"},
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "192",
+                    },
                     {"key": "EmbedThumbnail"},
                     {"key": "FFmpegMetadata"},
                 ]
@@ -386,14 +449,18 @@ class YTDLPDownloader:
                 "match_filter": make_duration_match_filter(DURATION_LIMIT_SEC),
                 **extra,
             }
-            if cookies_path and await asyncio.to_thread(os.path.exists, cookies_path):  # mypy: ignore
+            if cookies_path and await asyncio.to_thread(
+                os.path.exists, cookies_path
+            ):  # mypy: ignore
                 ydl_opts["cookiefile"] = cookies_path
 
             async with download_sem:
                 log_info(logger, "Начало загрузки", mode=mode, url=url)
                 await self.extractor.ytdlp_extract(url, ydl_opts, download=True)
 
-            items = await asyncio.to_thread(self.postprocessor._postprocess_sync, tmpdir, mode, url)
+            items = await asyncio.to_thread(
+                self.postprocessor._postprocess_sync, tmpdir, mode, url
+            )
             return items
         except DownloadError:
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -402,7 +469,12 @@ class YTDLPDownloader:
             shutil.rmtree(tmpdir, ignore_errors=True)
             raise
         except Exception as e:
-            log_exception(logger, "Неожиданная ошибка в download_media_to_temp", url=url, extra={"err": str(e)})
+            log_exception(
+                logger,
+                "Неожиданная ошибка в download_media_to_temp",
+                url=url,
+                extra={"err": str(e)},
+            )
             shutil.rmtree(tmpdir, ignore_errors=True)
             raise
 
@@ -412,7 +484,9 @@ _postprocessor = YTDLPPostprocessor(max_file_bytes=MAX_FILE_BYTES)
 _downloader = YTDLPDownloader(_extractor, _postprocessor)
 
 
-async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[Dict[str, Any]]:
+async def search_tracks(
+    query: str, cookies_path: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """Ищет треки по запросу (YouTube search) и фильтрует по длине.
 
     Args:
@@ -425,7 +499,9 @@ async def search_tracks(query: str, cookies_path: Optional[str] = None) -> List[
     return await _extractor.search_tracks(query, cookies_path=cookies_path)
 
 
-async def extract_basic_info(url: str, cookies_path: Optional[str] = None) -> Dict[str, Any]:
+async def extract_basic_info(
+    url: str, cookies_path: Optional[str] = None
+) -> Dict[str, Any]:
     """Извлекает базовую информацию о ресурсе без скачивания.
 
     Args:
@@ -454,7 +530,9 @@ async def download_media_to_temp(
     Raises:
         FileTooLargeError: Если скачанный файл превышает MAX_FILE_BYTES.
     """
-    return await _downloader.download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
+    return await _downloader.download_media_to_temp(
+        url, mode=mode, cookies_path=cookies_path
+    )
 
 
 async def find_server_cookies_for_url(url: str) -> Optional[str]:

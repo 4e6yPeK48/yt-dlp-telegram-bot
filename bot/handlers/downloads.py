@@ -63,7 +63,9 @@ async def perform_download(
             duration = None
 
         try:
-            files = await download_media_to_temp(url, mode=mode, cookies_path=cookies_path)
+            files = await download_media_to_temp(
+                url, mode=mode, cookies_path=cookies_path
+            )
         except FileTooLargeError:
             log_warning(
                 logger,
@@ -74,7 +76,8 @@ async def perform_download(
             )
             try:
                 await bot.send_message(
-                    chat_id, "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота."
+                    chat_id,
+                    "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота.",
                 )
                 from services import telethon_client
 
@@ -181,7 +184,9 @@ async def perform_download(
             await on_error()
         else:
             try:
-                await bot.send_message(chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже.")
+                await bot.send_message(
+                    chat_id, "❌ Произошла ошибка при загрузке. Попробуйте позже."
+                )
             except Exception as e2:
                 log_exception(
                     logger,

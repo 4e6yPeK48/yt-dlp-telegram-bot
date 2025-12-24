@@ -20,7 +20,11 @@ class TelegramSender:
     Класс для отправки медиафайлов через Bot API с возможностью fallback через Telethon.
     """
 
-    def __init__(self, tg_max_bytes: int = TG_MAX_UPLOAD_BYTES, telethon_enabled: bool = TELETHON_FALLBACK_ENABLED):
+    def __init__(
+        self,
+        tg_max_bytes: int = TG_MAX_UPLOAD_BYTES,
+        telethon_enabled: bool = TELETHON_FALLBACK_ENABLED,
+    ):
         self.tg_max_bytes = tg_max_bytes
         self.telethon_enabled = telethon_enabled
 
@@ -67,11 +71,23 @@ class TelegramSender:
             and telethon_client.get_client()
         ):
             return await request_alternate_delivery_and_send(
-                bot, chat_id, media_path, caption=caption, thumb=thumb_path, supports_streaming=(media_arg == "video")
+                bot,
+                chat_id,
+                media_path,
+                caption=caption,
+                thumb=thumb_path,
+                supports_streaming=(media_arg == "video"),
             )
 
-        kwargs = {"chat_id": chat_id, "caption": caption, "parse_mode": None, media_arg: FSInputFile(media_path)}
-        if thumb_path and await asyncio.to_thread(os.path.exists, thumb_path):  # mypy: ignore
+        kwargs = {
+            "chat_id": chat_id,
+            "caption": caption,
+            "parse_mode": None,
+            media_arg: FSInputFile(media_path),
+        }
+        if thumb_path and await asyncio.to_thread(
+            os.path.exists, thumb_path
+        ):  # mypy: ignore
             kwargs["thumbnail"] = FSInputFile(thumb_path)
         if extra:
             kwargs.update(extra)
@@ -111,7 +127,14 @@ class TelegramSender:
                 title = os.path.splitext(os.path.basename(media_path))[0]
                 caption = title
                 sent = await self._send_via_bot_or_fallback(
-                    bot, chat_id, media_path, thumb_path, caption, method, media_arg, extra
+                    bot,
+                    chat_id,
+                    media_path,
+                    thumb_path,
+                    caption,
+                    method,
+                    media_arg,
+                    extra,
                 )
                 if not sent:
                     try:
@@ -143,15 +166,28 @@ class TelegramSender:
                 with suppress(Exception):
                     await asyncio.to_thread(shutil.rmtree, d, True)  # mypy: ignore
 
-    async def send_audio_files(self, bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
-        await self.send_media_files(bot, chat_id, items, method="send_audio", media_arg="audio")
-
-    async def send_video_files(self, bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+    async def send_audio_files(
+        self, bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+    ) -> None:
         await self.send_media_files(
-            bot, chat_id, items, method="send_video", media_arg="video", extra={"supports_streaming": True}
+            bot, chat_id, items, method="send_audio", media_arg="audio"
         )
 
-    async def send_by_mode(self, bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]) -> None:
+    async def send_video_files(
+        self, bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+    ) -> None:
+        await self.send_media_files(
+            bot,
+            chat_id,
+            items,
+            method="send_video",
+            media_arg="video",
+            extra={"supports_streaming": True},
+        )
+
+    async def send_by_mode(
+        self, bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
+    ) -> None:
         if mode == "audio":
             await self.send_audio_files(bot, chat_id, items)
         else:
@@ -164,7 +200,9 @@ class TelegramSender:
         url: str,
         user_id: int,
         reply_markup: Optional[Any] = None,
-        extract_basic_info_fn: Optional[Callable[[str], Awaitable[Dict[str, Any]]]] = None,
+        extract_basic_info_fn: Optional[
+            Callable[[str], Awaitable[Dict[str, Any]]]
+        ] = None,
     ) -> None:
         extract_fn = extract_basic_info_fn or extract_basic_info
         caption_fallback = "🎧 Файл найден:\n\nВыберите, что скачать для этой ссылки:"
@@ -198,7 +236,9 @@ class TelegramSender:
                         reply_markup=reply_markup,
                     )
                     return
-            await bot.send_message(chat_id, caption, parse_mode=None, reply_markup=reply_markup)
+            await bot.send_message(
+                chat_id, caption, parse_mode=None, reply_markup=reply_markup
+            )
         except Exception as e:
             log_exception(
                 logger,
@@ -208,7 +248,9 @@ class TelegramSender:
                 url=url,
                 extra={"err": str(e)},
             )
-            await bot.send_message(chat_id, caption_fallback, parse_mode=None, reply_markup=reply_markup)
+            await bot.send_message(
+                chat_id, caption_fallback, parse_mode=None, reply_markup=reply_markup
+            )
 
 
 _sender = TelegramSender()
@@ -235,7 +277,9 @@ async def send_media_files(
     await _sender.send_media_files(bot, chat_id, items, method, media_arg, extra)
 
 
-async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+async def send_audio_files(
+    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+) -> None:
     """Отправляет аудиофайлы.
 
     Args:
@@ -246,7 +290,9 @@ async def send_audio_files(bot: Bot, chat_id: int, items: List[Tuple[str, Option
     await _sender.send_audio_files(bot, chat_id, items)
 
 
-async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]) -> None:
+async def send_video_files(
+    bot: Bot, chat_id: int, items: List[Tuple[str, Optional[str]]]
+) -> None:
     """Отправляет видеофайлы.
 
     Args:
@@ -257,7 +303,9 @@ async def send_video_files(bot: Bot, chat_id: int, items: List[Tuple[str, Option
     await _sender.send_video_files(bot, chat_id, items)
 
 
-async def send_by_mode(bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]) -> None:
+async def send_by_mode(
+    bot: Bot, chat_id: int, mode: str, items: List[Tuple[str, Optional[str]]]
+) -> None:
     """Выбирает способ отправки по режиму.
 
     Args:
@@ -269,7 +317,9 @@ async def send_by_mode(bot: Bot, chat_id: int, mode: str, items: List[Tuple[str,
     await _sender.send_by_mode(bot, chat_id, mode, items)
 
 
-async def send_info_card(bot: Bot, chat_id: int, url: str, user_id: int, reply_markup: Optional[Any] = None) -> None:
+async def send_info_card(
+    bot: Bot, chat_id: int, url: str, user_id: int, reply_markup: Optional[Any] = None
+) -> None:
     """Отправляет карточку найденного файла.
 
     Args:
