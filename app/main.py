@@ -3,15 +3,15 @@ import asyncio
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 
-from bot.dispatcher import dp, logger
-from utils.log_helpers import log_info, log_warning, log_exception
-from config import (
+from app.bot.dispatcher import dp, logger
+from app.utils.log_helpers import log_info, log_warning, log_exception
+from app.config import (
     BOT_TOKEN,
     TELETHON_FALLBACK_ENABLED,
 )
-from services import telethon_client
-from utils.logging import setup_logging
-from bot.handlers import commands, messages, callbacks, downloads  # noqa: F401
+from app.services import telethon_client
+from app.utils.logging import setup_logging
+from app.bot.handlers import commands, messages, callbacks, downloads  # noqa: F401
 
 
 async def main() -> None:

@@ -2,11 +2,15 @@ from asyncio import CancelledError
 
 from yt_dlp.utils import DownloadError
 
-from bot.dispatcher import logger
-from utils.log_helpers import log_info, log_warning, log_exception
-from services.ytdlp import download_media_to_temp, extract_basic_info, FileTooLargeError
-from services.telegram import send_by_mode
-from storage.state import (
+from app.bot.dispatcher import logger
+from app.utils.log_helpers import log_info, log_warning, log_exception
+from app.services.ytdlp import (
+    download_media_to_temp,
+    extract_basic_info,
+    FileTooLargeError,
+)
+from app.services.telegram import send_by_mode
+from app.storage.state import (
     end_user_download,
     remember_cookie_request,
     add_download_history,
@@ -79,7 +83,7 @@ async def perform_download(
                     chat_id,
                     "❌ Файл слишком большой (превышает лимит сервера, 2 ГБ). Нельзя доставить через бота.",
                 )
-                from services import telethon_client
+                from app.services import telethon_client
 
                 if telethon_client.get_client():
                     username = telethon_client.get_username() or "alternate account"

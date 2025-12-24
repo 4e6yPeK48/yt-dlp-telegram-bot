@@ -3,9 +3,9 @@ import logging
 
 import pytest
 
-from utils.logging import OnlyLoggerFilter
-from utils.text import parse_main_button_intent
-from storage.state import (
+from app.utils.logging import OnlyLoggerFilter
+from app.utils.text import parse_main_button_intent
+from app.storage.state import (
     begin_user_download,
     end_user_download,
     get_download_task,

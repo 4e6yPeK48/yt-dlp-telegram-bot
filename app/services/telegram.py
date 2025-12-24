@@ -7,12 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
 from aiogram import Bot
 from aiogram.types import FSInputFile
 
-from services import telethon_client
-from services.telethon_client import request_alternate_delivery_and_send
-from services.ytdlp import extract_basic_info
-from bot.dispatcher import logger
-from utils.log_helpers import log_info, log_exception
-from config import TG_MAX_UPLOAD_BYTES, TELETHON_FALLBACK_ENABLED
+from app.services import telethon_client
+from app.services.telethon_client import request_alternate_delivery_and_send
+from app.services.ytdlp import extract_basic_info
+from app.bot.dispatcher import logger
+from app.utils.log_helpers import log_info, log_exception
+from app.config import TG_MAX_UPLOAD_BYTES, TELETHON_FALLBACK_ENABLED
 
 
 class TelegramSender:
@@ -211,11 +211,11 @@ class TelegramSender:
             info = await extract_fn(url)
             title = str(info.get("title") or "Без названия")
             dur_s = info.get("duration")
-            from utils.text import make_multiline_caption, format_duration_hms
+            from app.utils.text import make_multiline_caption, format_duration_hms
 
             dur_str = format_duration_hms(dur_s)
             channel = str(info.get("channel") or "")
-            from utils.validators import is_youtube_url
+            from app.utils.validators import is_youtube_url
 
             show_channel = is_youtube_url(url) and bool(channel)
             parts = ["🎧 Файл найден:", "", f"Название: {title}"]

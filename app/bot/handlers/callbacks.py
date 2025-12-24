@@ -10,24 +10,24 @@ from aiogram.types import (
     InlineKeyboardMarkup,
 )
 
-from bot.dispatcher import router, logger
-from bot.keyboards import (
+from app.bot.dispatcher import router, logger
+from app.bot.keyboards import (
     build_settings_kb,
     build_download_choice_kb,
     build_results_kb,
     build_history_kb,
 )
-from config import (
+from app.config import (
     PAGE_SIZE,
 )
-from services.telegram import (
+from app.services.telegram import (
     send_info_card,
 )
-from services.ytdlp import (
+from app.services.ytdlp import (
     decide_effective_mode,
     find_server_cookies_for_url,
 )
-from storage.state import (
+from app.storage.state import (
     get_searches,
     get_awaiting,
     get_pending,
@@ -50,14 +50,14 @@ from storage.state import (
     pop_download_task,
     cancel_download_task,
 )
-from bot.handlers.downloads import perform_download
-from bot.helpers import (
+from app.bot.handlers.downloads import perform_download
+from app.bot.helpers import (
     safe_answer,
     safe_edit_markup,
     safe_delete_msg,
     get_user_and_chat,
 )
-from utils.log_helpers import log_info
+from app.utils.log_helpers import log_info
 
 
 @router.callback_query(F.data == "settings:open")
@@ -287,7 +287,12 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
     """
     await safe_answer(cb)
     data = cb.data or ""
-    log_info(logger, "cb_download_server invoked", user_id=getattr(cb.from_user, "id", None), extra={"data": data})
+    log_info(
+        logger,
+        "cb_download_server invoked",
+        user_id=getattr(cb.from_user, "id", None),
+        extra={"data": data},
+    )
 
     parts = data.split(":", 2)
     if len(parts) != 3:

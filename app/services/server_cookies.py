@@ -6,15 +6,15 @@ from contextlib import suppress
 
 import aiohttp
 
-from config import (
+from app.config import (
     SERVER_COOKIES_DIR,
     SERVER_COOKIES_SOURCES,
     SERVER_COOKIES_REFRESH_INTERVAL_SEC,
     COOKIES_MAX_BYTES,
     SERVER_COOKIES_MAP,
 )
-from utils.log_helpers import log_info, log_warning, log_exception
-from bot.dispatcher import logger
+from app.utils.log_helpers import log_info, log_warning, log_exception
+from app.bot.dispatcher import logger
 
 
 async def _download_to_path(

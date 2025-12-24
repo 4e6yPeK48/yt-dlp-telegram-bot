@@ -3,8 +3,8 @@ from typing import Dict, List, Any
 from aiogram.types import InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import PAGE_SIZE, BTN_MENU, BTN_HELP, BTN_SETTINGS, BTN_HISTORY
-from storage.state import (
+from app.config import PAGE_SIZE, BTN_MENU, BTN_HELP, BTN_SETTINGS, BTN_HISTORY
+from app.storage.state import (
     slice_page,
     get_searches,
     get_user_mode,

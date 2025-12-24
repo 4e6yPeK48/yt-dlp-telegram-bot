@@ -1,17 +1,17 @@
 import math
 import pytest
 
-from config import MAX_QUERY_LEN
-from utils.text import (
+from app.config import MAX_QUERY_LEN
+from app.utils.text import (
     sanitize_query,
     make_caption,
     make_multiline_caption,
     format_duration_hms,
 )
-from utils.validators import is_url, is_youtube_url, is_audio_platform
-from services.media import norm_base, extract_id_from_base
-from services.ytdlp import decide_effective_mode, make_duration_match_filter
-from storage.state import (
+from app.utils.validators import is_url, is_youtube_url, is_audio_platform
+from app.services.media import norm_base, extract_id_from_base
+from app.services.ytdlp import decide_effective_mode, make_duration_match_filter
+from app.storage.state import (
     StateStore,
     set_searches,
     pop_searches,
@@ -20,7 +20,7 @@ from storage.state import (
     clear_history,
     reset_history_page,
 )
-from bot.keyboards import (
+from app.bot.keyboards import (
     build_results_kb,
     build_settings_kb,
     build_download_choice_kb,

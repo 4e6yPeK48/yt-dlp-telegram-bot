@@ -2,7 +2,7 @@ import logging
 from sys import exc_info
 from typing import Any, Dict, Optional
 
-from config import TRUNC_URL
+from app.config import TRUNC_URL
 
 
 def _truncate(s: Optional[str], n: int = TRUNC_URL) -> Optional[str]:

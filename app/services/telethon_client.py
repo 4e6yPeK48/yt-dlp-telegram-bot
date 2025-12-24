@@ -5,7 +5,7 @@ from typing import Optional, Callable, Awaitable, Any, Dict, List
 
 from telethon import TelegramClient, events, errors
 
-from config import (
+from app.config import (
     TELETHON_API_ID,
     TELETHON_API_HASH,
     TELETHON_SESSION,
@@ -13,11 +13,17 @@ from config import (
     TELETHON_UPLOAD_TIMEOUT,
     CONCURRENT_DOWNLOADS,
 )
-from bot.dispatcher import logger
-from utils.log_helpers import log_info, log_warning, log_error, log_exception, log_debug
+from app.bot.dispatcher import logger
+from app.utils.log_helpers import (
+    log_info,
+    log_warning,
+    log_error,
+    log_exception,
+    log_debug,
+)
 
 try:
-    from bot.dispatcher import telethon_sem
+    from app.bot.dispatcher import telethon_sem
 except Exception:
     telethon_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 

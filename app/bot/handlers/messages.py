@@ -9,23 +9,23 @@ from aiogram.types import (
 )
 from yt_dlp.utils import DownloadError
 
-from bot.dispatcher import router, logger
-from bot.handlers.callbacks import build_cancel_kb
-from utils.log_helpers import log_info, log_exception
-from bot.handlers.commands import cmd_start, cmd_help, cmd_settings, cmd_history
-from bot.keyboards import build_download_choice_kb, build_results_kb
-from config import (
+from app.bot.dispatcher import router, logger
+from app.bot.handlers.callbacks import build_cancel_kb
+from app.utils.log_helpers import log_info, log_exception
+from app.bot.handlers.commands import cmd_start, cmd_help, cmd_settings, cmd_history
+from app.bot.keyboards import build_download_choice_kb, build_results_kb
+from app.config import (
     COOKIES_MAX_BYTES,
     ALLOWED_COOKIES_EXTS,
 )
-from services.telegram import (
+from app.services.telegram import (
     send_info_card,
 )
-from services.ytdlp import (
+from app.services.ytdlp import (
     decide_effective_mode,
     search_tracks,
 )
-from storage.state import (
+from app.storage.state import (
     set_searches,
     get_awaiting,
     pop_awaiting,
@@ -37,10 +37,10 @@ from storage.state import (
     set_download_task,
     pop_download_task,
 )
-from utils.text import sanitize_query, parse_main_button_intent
-from utils.validators import is_url
-from bot.handlers.downloads import perform_download
-from bot.helpers import get_user_and_chat
+from app.utils.text import sanitize_query, parse_main_button_intent
+from app.utils.validators import is_url
+from app.bot.handlers.downloads import perform_download
+from app.bot.helpers import get_user_and_chat
 
 
 @router.message(F.text)

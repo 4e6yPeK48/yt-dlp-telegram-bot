@@ -1,11 +1,11 @@
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 
-from bot.keyboards import build_main_reply_kb, build_settings_kb, build_history_kb
-from bot.dispatcher import router, logger
-from storage.state import pop_searches, pop_awaiting, get_history
-from bot.helpers import get_user_and_chat
-from utils.log_helpers import log_info
+from app.bot.keyboards import build_main_reply_kb, build_settings_kb, build_history_kb
+from app.bot.dispatcher import router, logger
+from app.storage.state import pop_searches, pop_awaiting, get_history
+from app.bot.helpers import get_user_and_chat
+from app.utils.log_helpers import log_info
 
 
 @router.message(CommandStart())

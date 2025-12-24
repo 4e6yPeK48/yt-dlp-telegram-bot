@@ -6,10 +6,10 @@ from typing import List, Optional, Set
 from PIL import Image, ImageOps
 from PIL.Image import Resampling
 
-from bot.dispatcher import logger
-from utils.log_helpers import log_info, log_warning, log_exception
+from app.bot.dispatcher import logger
+from app.utils.log_helpers import log_info, log_warning, log_exception
 
-from config import AUDIO_EXTS, VIDEO_EXTS, IMAGE_EXTS, THUMB_SIZE, THUMB_MAX_BYTES
+from app.config import AUDIO_EXTS, VIDEO_EXTS, IMAGE_EXTS, THUMB_SIZE, THUMB_MAX_BYTES
 
 
 def find_files_by_exts(root: str, exts: Set[str]) -> List[str]:

@@ -37,6 +37,7 @@ cookies.
    python main.py
    ```
 
+---
 
 ## Запуск через Docker
 
@@ -57,6 +58,7 @@ cookies.
    TELETHON_API_ID=your_api_id_here
    TELETHON_API_HASH=your_api_hash_here
    TELETHON_FALLBACK_ENABLED=true_or_false
+   PHONE=your_telethon_phone_number_here
    EOF
    ```
    - Поместите необходимые секреты в `~/ytbot/.env`. Храните этот файл в приватном доступе.
@@ -71,14 +73,10 @@ cookies.
     --name ytbot \
     --restart unless-stopped \
     --env-file .env \
-    -v "$(pwd)/cookies:/app/cookies" \
-    -v "$(pwd)/server_cookies:/app/server_cookies" \
-    -v "$(pwd)/logs:/app/logs" \
     m4estro777/ytbot:latest
   ```
   - `--env-file .env` загружает переменные из `~/ytbot/.env`.
-  - `-v .../cookies`, `-v .../server_cookies` и `-v .../logs` монтируют постоянные папки (опционально, но рекомендуется).
-  - Используйте `:ro` у монтирований, если нужен доступ только для чтения.
+  - при первом запуске бот потребует авторизацию Telethon‑аккаунта (если включён Telethon‑fallback).
 
 ### Обновление / повторный деплой
 ```bash
@@ -121,6 +119,105 @@ services:
 Запуск:
 ```bash
 docker compose up -d
+```
+
+---
+
+## Настройка с Poetry
+
+Этот проект использует Poetry для управления зависимостями Python и виртуальными окружениями. Инструкции ниже предполагают использование Linux.
+
+### Требования
+
+* Python 3.11 или новее
+* Poetry (установите, следуя официальному руководству: https://python-poetry
+* Системные пакеты, необходимые для инструментов и обработки медиа:
+
+  * ffmpeg
+  * Библиотеки для сборки Pillow (пример для Debian/Ubuntu): `sudo apt install -y libjpeg-dev zlib1g-dev`
+  * (Опционально) libcurl / другие системные библиотеки для некоторых дополнительных функций
+
+### Быстрый старт (рекомендуется)
+
+1. Укажите Poetry использовать правильную версию Python:
+
+   * `poetry env use python3.11`
+
+2. Установите зависимости (создаст изолированное виртуальное окружение):
+
+   * `poetry install`
+
+3. Используйте виртуальное окружение через shell или `poetry run` для команд:
+
+   * Войти в shell: `poetry shell`
+   * Или выполнить отдельную команду: `poetry run <command>`
+
+### Переменные окружения
+
+Создайте файл `.env` (или установите переменные окружения) с необходимыми ключами. Пример `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELETHON_API_ID=123456
+TELETHON_API_HASH=your_api_hash
+PHONE=+1234567890   # требуется только для скрипта входа через Telethon
+```
+
+Проект автоматически подгружает `.env` при необходимости.
+
+### Telethon (альтернативная доставка) — вход в аккаунт
+
+Если включён fallback через Telethon, нужно один раз авторизовать сессию пользователя:
+
+* Запустите скрипт входа:
+
+  * `poetry run python app/scripts/telethon_login.py`
+
+Скрипт запустит Telethon и запросит телефон/код. После успешного входа будет создан файл сессии (например, `telethon.session`), который будет использовать бот.
+
+### Тесты и линтеры
+
+* Запуск unit-тестов:
+
+  * `poetry run pytest`
+* Проверка типов и линтеры:
+
+  * `poetry run mypy`
+  * `poetry run black --check .`
+  * `poetry run flake8`
+
+### Экспорт `requirements.txt`
+
+В этом репозитории настроен `poetry-plugin-export`. Чтобы экспортировать фиксированные зависимости в `requirements.txt` (для деплоя или контейнеров):
+
+* `poetry export -f requirements.txt -o requirements.txt --without-hashes --dev`
+  (уберите `--dev`, чтобы исключить dev-зависимости)
+
+### Запуск бота
+
+Запускайте бота через окружение Poetry. Пример (замените на ваш реальный entrypoint, если отличается):
+
+* `poetry run python -m app`
+  или
+* `poetry run python path/to/entrypoint.py`
+
+Используйте `poetry run`, чтобы команда выполнялась внутри виртуального окружения Poetry.
+
+### Примечания и устранение проблем
+
+* Если возникают ошибки сборки Pillow, установите системные библиотеки для работы с изображениями (см. Требования).
+* Если нужно доставить большой файл и Bot API не справляется, бот попытается использовать fallback через Telethon — убедитесь, что сессия Telethon авторизована и пользователь следует инструкциям бота.
+* Чтобы пересоздать `requirements.txt` для Docker, выполните шаг экспорта выше и скопируйте файл в ваш образ.
+
+### Полезные команды (резюме)
+
+```bash
+poetry env use python3.11
+poetry install
+poetry shell                # или используйте `poetry run ...`
+poetry run pytest
+poetry run python app/scripts/telethon_login.py
+poetry export -f requirements.txt -o requirements.txt --without-hashes --dev
 ```
 
 

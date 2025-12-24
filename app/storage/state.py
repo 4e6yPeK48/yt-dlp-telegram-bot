@@ -5,9 +5,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from bot.dispatcher import logger
-from utils.log_helpers import log_info, log_exception
-from config import COOKIES_DIR, PAGE_SIZE
+from app.bot.dispatcher import logger
+from app.utils.log_helpers import log_info, log_exception
+from app.config import COOKIES_DIR, PAGE_SIZE
 
 
 class StateStore:

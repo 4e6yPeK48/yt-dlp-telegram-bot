@@ -2,13 +2,13 @@ import asyncio
 import logging
 import sys
 
-from config import SERVER_COOKIES_SOURCES, SERVER_COOKIES_MAP
-from services.server_cookies import refresh_server_cookies_once
-from utils.log_helpers import log_info, log_exception
-from utils.logging import setup_logging
+from app.config import SERVER_COOKIES_SOURCES, SERVER_COOKIES_MAP
+from app.services.server_cookies import refresh_server_cookies_once
+from app.utils.log_helpers import log_info, log_exception
+from app.utils.logging import setup_logging
 
 try:
-    from bot.dispatcher import logger
+    from app.bot.dispatcher import logger
 except ImportError:
     setup_logging()
     logger = logging.getLogger("bot")

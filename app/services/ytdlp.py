@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from config import (
+from app.config import (
     MAX_PLAYLIST_ITEMS,
     MAX_RESULTS,
     DURATION_LIMIT_SEC,
@@ -20,12 +20,12 @@ from config import (
     SERVER_COOKIES_MAP,
     SERVER_COOKIES_DIR,
 )
-from bot.dispatcher import logger
-from utils.log_helpers import log_debug, log_info, log_error, log_exception
+from app.bot.dispatcher import logger
+from app.utils.log_helpers import log_debug, log_info, log_error, log_exception
 
-from utils.validators import is_audio_platform
+from app.utils.validators import is_audio_platform
 
-from services.media import (
+from app.services.media import (
     find_audio_files,
     find_image_files,
     find_video_files,
@@ -35,7 +35,7 @@ from services.media import (
 )
 
 try:
-    from bot.dispatcher import download_sem
+    from app.bot.dispatcher import download_sem
 except Exception:
     download_sem = asyncio.Semaphore(CONCURRENT_DOWNLOADS)
 

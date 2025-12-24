@@ -1,5 +1,6 @@
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -12,15 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+# зависимости
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . /app
+# код
+COPY app /app/app
+COPY entrypoint.sh /entrypoint.sh
 
-RUN mkdir -p /app/logs \
-    && useradd -u 1000 --create-home --shell /bin/false appuser \
-    && chown -R appuser:appuser /app
+RUN chmod +x /entrypoint.sh
 
-USER appuser
-
-CMD ["python", "main.py"]
+ENTRYPOINT ["/entrypoint.sh"]
