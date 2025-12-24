@@ -13,6 +13,7 @@ except ImportError:
     setup_logging()
     logger = logging.getLogger("bot")
 
+
 async def _main():
     if not SERVER_COOKIES_SOURCES:
         log_info(logger, "Не заданы SERVER_COOKIES_SOURCES; пропускаю.")
@@ -31,6 +32,7 @@ async def _main():
     except Exception:
         log_exception(logger, "fetch_server_cookies: неожиданная ошибка")
         return 3
+
 
 if __name__ == "__main__":
     exit_code = asyncio.run(_main())

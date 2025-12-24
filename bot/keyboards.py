@@ -98,6 +98,9 @@ def build_main_reply_kb() -> ReplyKeyboardMarkup:
 
     Returns:
         ReplyKeyboardMarkup: Клавиатура с основными командами.
+
+    Returns:
+        ReplyKeyboardMarkup: Сконструированная клавиатура.
     """
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -114,6 +117,15 @@ def build_main_reply_kb() -> ReplyKeyboardMarkup:
 
 
 def build_history_kb(user_id: int) -> InlineKeyboardBuilder:
+    """
+    Строит инлайн-клавиатуру истории скачиваний с пагинацией.
+
+    Args:
+        user_id (int): Идентификатор пользователя.
+
+    Returns:
+        InlineKeyboardBuilder: Сконструированный билдер.
+    """
     items = get_history(user_id) or []
     page = get_history_page(user_id)
     current, pages = slice_page(items, page, PAGE_SIZE)

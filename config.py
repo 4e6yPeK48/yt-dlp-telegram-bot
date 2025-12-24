@@ -79,7 +79,7 @@ SERVER_COOKIES_REFRESH_INTERVAL_SEC: int = int(os.getenv("SERVER_COOKIES_REFRESH
 os.makedirs(SERVER_COOKIES_DIR, exist_ok=True)
 
 # Button labels
-BTN_MENU: str = "🏠 Меню (/start, /menu)"
-BTN_HELP: str = "❓ Помощь (/help)"
-BTN_SETTINGS: str = "⚙️ Настройки (/settings)"
+BTN_MENU: str = "🏠 Меню"
+BTN_HELP: str = "❓ Помощь"
+BTN_SETTINGS: str = "⚙️ Настройки"
 BTN_HISTORY: str = "📜 История"

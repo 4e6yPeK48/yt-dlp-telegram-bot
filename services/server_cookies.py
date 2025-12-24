@@ -11,10 +11,12 @@ from config import (
     SERVER_COOKIES_DIR,
     SERVER_COOKIES_SOURCES,
     SERVER_COOKIES_REFRESH_INTERVAL_SEC,
-    COOKIES_MAX_BYTES, SERVER_COOKIES_MAP,
+    COOKIES_MAX_BYTES,
+    SERVER_COOKIES_MAP,
 )
 from utils.log_helpers import log_info, log_warning, log_exception
 from bot.dispatcher import logger
+
 
 async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path: str, max_bytes: int) -> bool:
     tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(dest_path), prefix=".tmp_cookie_")
@@ -32,7 +34,12 @@ async def _download_to_path(session: aiohttp.ClientSession, url: str, dest_path:
                     f.write(chunk)
                     size += len(chunk)
                     if max_bytes and size > max_bytes:
-                        log_warning(logger, "server_cookies: файл превышает максимальный размер", url=url, extra={"max_bytes": max_bytes})
+                        log_warning(
+                            logger,
+                            "server_cookies: файл превышает максимальный размер",
+                            url=url,
+                            extra={"max_bytes": max_bytes},
+                        )
                         with suppress(Exception):
                             os.remove(tmp_path)
                         return False
@@ -77,7 +84,7 @@ async def refresh_server_cookies_once(sources: Dict[str, str] = None) -> Dict[st
                 ok = await _download_to_path(session, url, dest, COOKIES_MAX_BYTES)
                 out[fname] = bool(ok)
             except Exception:
-                log_exception(logger , "server_cookies: неожиданная ошибка", extra={"filename": fname})
+                log_exception(logger, "server_cookies: неожиданная ошибка", extra={"filename": fname})
                 out[fname] = False
             handled_fnames.add(fname)
 
@@ -92,8 +99,7 @@ async def refresh_server_cookies_once(sources: Dict[str, str] = None) -> Dict[st
                 ok = await _download_to_path(session, url, dest, COOKIES_MAX_BYTES)
                 out[mapped_fname] = bool(ok)
             except Exception:
-                log_exception(logger, "server_cookies: неожиданная ошибка",
-                              extra={"filename": mapped_fname})
+                log_exception(logger, "server_cookies: неожиданная ошибка", extra={"filename": mapped_fname})
                 out[mapped_fname] = False
 
     return out
@@ -111,6 +117,6 @@ async def start_periodic_refresher(interval: int = None, stop_event: asyncio.Eve
                 log_exception(logger, "server_cookies: refresh loop error")
             await asyncio.wait([stop_event.wait()], timeout=interval)
     except asyncio.CancelledError:
-        log_exception(logger , "server_cookies: рефрешер отменён")
+        log_exception(logger, "server_cookies: рефрешер отменён")
     finally:
         log_info(logger, "server_cookies: рефрешер остановлен")
