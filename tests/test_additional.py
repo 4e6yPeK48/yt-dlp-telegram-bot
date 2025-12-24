@@ -8,7 +8,6 @@ from utils.text import parse_main_button_intent
 from storage.state import (
     begin_user_download,
     end_user_download,
-    set_download_task,
     get_download_task,
     cancel_download_task,
     set_download_task,
@@ -36,14 +35,15 @@ async def test_user_download_lock_behavior():
 
 @pytest.mark.asyncio
 async def test_set_get_and_cancel_download_task():
-    """set_download_task / get_download_task / cancel_download_task: полный поток работы."""
+    """set/get/cancel: цикл для asyncio.Task, сохранённой в состоянии."""
     uid = 42424242
 
     async def sleeper():
+        # простая долгоживущая корутина, которую можно отменить
         try:
             await asyncio.sleep(10)
         except asyncio.CancelledError:
-            # пробросить отмену, чтобы ожидание задачи выбрасывало CancelledError
+            # повторно возбуждаем, чтобы ожидающие вызовы могли увидеть отмену
             raise
 
     task = asyncio.create_task(sleeper())
@@ -60,7 +60,7 @@ async def test_set_get_and_cancel_download_task():
 
 
 def test_only_logger_filter():
-    """OnlyLoggerFilter должен пропускать записи только для совпадающего префикса."""
+    """OnlyLoggerFilter пропускает только записи с заданным префиксом имени логгера."""
     f = OnlyLoggerFilter("bot")
     rec1 = logging.LogRecord(
         name="bot.handlers",
@@ -85,7 +85,7 @@ def test_only_logger_filter():
 
 
 def test_parse_main_button_intent_additional_cases():
-    """Дополнительные случаи для parse_main_button_intent (русские варианты и пунктуация)."""
+    """parse_main_button_intent: русские варианты, пунктуация и разные регистры."""
     assert parse_main_button_intent("/start") == "menu"
     assert parse_main_button_intent("меню") == "menu"
     assert parse_main_button_intent("Помощь, пожалуйста") == "help"
@@ -96,9 +96,10 @@ def test_parse_main_button_intent_additional_cases():
 
 
 def test_make_dl_token_uniqueness_and_cookies_path():
-    """make_dl_token должен генерировать уникальные токены; путь к cookies содержит суффикс с id пользователя."""
+    """make_dl_token генерирует уникальные токены; путь к cookies содержит идентификатор пользователя."""
     tokens = {make_dl_token() for _ in range(200)}
     assert len(tokens) == 200
     uid = 777
     path = get_user_cookies_path(uid)
+    # путь должен содержать суффикс с id пользователя и _cookies.txt
     assert path.endswith(f"{uid}_cookies.txt")
