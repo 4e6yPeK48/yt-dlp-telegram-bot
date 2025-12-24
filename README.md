@@ -37,6 +37,96 @@ cookies.
    python main.py
    ```
 
+
+## Запуск через Docker
+
+Этот проект можно запускать в Docker. Ниже описан минимальный, безопасный и воспроизводимый способ запуска бота в Docker.
+
+### Требования (пример для Ubuntu / Debian)
+- Установите Docker Engine и, при необходимости, Docker Compose:
+  - Следуйте официальному руководству по установке Docker: https://docs.docker.com/engine/install/
+  - При желании установите Docker Compose: https://docs.docker.com/compose/install/
+- Убедитесь, что ваш пользователь может выполнять команды Docker (добавьте в группу `docker` или используйте `sudo`).
+
+### Подготовка окружения
+1. Создайте рабочую директорию и файл окружения:
+   ```bash
+   mkdir -p ~/ytbot && cd ~/ytbot
+   cat > .env <<'EOF'
+   BOT_TOKEN=your_bot_token_here
+   TELETHON_API_ID=your_api_id_here
+   TELETHON_API_HASH=your_api_hash_here
+   TELETHON_FALLBACK_ENABLED=true_or_false
+   EOF
+   ```
+   - Поместите необходимые секреты в `~/ytbot/.env`. Храните этот файл в приватном доступе.
+
+2. (Опционально) При необходимости отредактируйте другие переменные окружения, используемые проектом (см. `config.py` на GitHub).
+
+### Запуск контейнера
+- Скачайте образ и запустите (в фоне, с политикой перезапуска, используя `--env-file`):
+  ```bash
+  docker pull m4estro777/ytbot:latest
+  docker run -d \
+    --name ytbot \
+    --restart unless-stopped \
+    --env-file .env \
+    -v "$(pwd)/cookies:/app/cookies" \
+    -v "$(pwd)/server_cookies:/app/server_cookies" \
+    -v "$(pwd)/logs:/app/logs" \
+    m4estro777/ytbot:latest
+  ```
+  - `--env-file .env` загружает переменные из `~/ytbot/.env`.
+  - `-v .../cookies`, `-v .../server_cookies` и `-v .../logs` монтируют постоянные папки (опционально, но рекомендуется).
+  - Используйте `:ro` у монтирований, если нужен доступ только для чтения.
+
+### Обновление / повторный деплой
+```bash
+docker pull m4estro777/ytbot:latest
+docker stop ytbot && docker rm ytbot
+# повторно выполните ту же команду docker run, что и выше
+```
+
+### Логи и управление
+- Просмотр логов:
+  ```bash
+  docker logs -f ytbot
+  # или просмотреть файлы логов внутри запущенного контейнера
+  docker exec -it ytbot ls -la /app/logs
+  ```
+- Остановка / запуск:
+  ```bash
+  docker stop ytbot
+  docker start ytbot
+  ```
+- Удаление контейнера:
+  ```bash
+  docker stop ytbot && docker rm ytbot
+  ```
+
+### Опционально: пример `docker-compose`
+Создайте `docker-compose.yml` в `~/ytbot`:
+```yaml
+version: "3.8"
+services:
+  ytbot:
+    image: m4estro777/ytbot:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./cookies:/app/cookies
+      - ./server_cookies:/app/server_cookies
+```
+Запуск:
+```bash
+docker compose up -d
+```
+
+
+---
+
+
 ## Конфигурация
 
 Основные опции находятся в `config.py`:

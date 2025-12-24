@@ -287,6 +287,8 @@ async def cb_download_server(cb: CallbackQuery, bot: Bot) -> None:
     """
     await safe_answer(cb)
     data = cb.data or ""
+    log_info(logger, "cb_download_server invoked", user_id=getattr(cb.from_user, "id", None), extra={"data": data})
+
     parts = data.split(":", 2)
     if len(parts) != 3:
         await safe_answer(cb, "⚠️ Некорректные данные.")
