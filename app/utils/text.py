@@ -1,13 +1,14 @@
 import re
 from typing import Any, Optional
-from config import CAPTION_MAX_LEN
+from app.config import CAPTION_MAX_LEN, MAX_QUERY_LEN
 
 
-def sanitize_query(text: str, max_len: int = 256) -> str:
+def sanitize_query(text: str, max_len: int = MAX_QUERY_LEN) -> str:
     """Очищает поисковый запрос (управляющие символы, пробелы, длину).
 
     Args:
         text (str): Исходный текст.
+        max_len (int): Максимальная длина.
 
     Returns:
         str: Санитизированный запрос.
@@ -83,7 +84,7 @@ def parse_main_button_intent(text: str) -> Optional[str]:
         text (str): Текст кнопки.
 
     Returns:
-        Optional[str]: Намерение ('menu', 'help', 'settings') или None.
+        Optional[str]: Намерение ('menu', 'help', 'settings', 'history) или None.
     """
     t = (text or "").strip()
     if not t:
@@ -96,6 +97,8 @@ def parse_main_button_intent(text: str) -> Optional[str]:
         return "help"
     if re.search(r"/settings\b", low):
         return "settings"
+    if re.search(r"/history\b", low):
+        return "history"
 
     cleaned = re.sub(r"[^\w\sА-Яа-яёЁ-]", " ", low)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -106,5 +109,7 @@ def parse_main_button_intent(text: str) -> Optional[str]:
         return "help"
     if re.search(r"\bнастрой", cleaned):
         return "settings"
+    if re.search(r"\bистор", cleaned):
+        return "history"
 
     return None

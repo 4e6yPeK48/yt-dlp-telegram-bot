@@ -1,9 +1,11 @@
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 
-from bot.keyboards import build_main_reply_kb, build_settings_kb
-from bot.dispatcher import router, logger
-from storage.state import pop_searches, pop_awaiting
+from app.bot.keyboards import build_main_reply_kb, build_settings_kb, build_history_kb
+from app.bot.dispatcher import router, logger
+from app.storage.state import pop_searches, pop_awaiting, get_history
+from app.bot.helpers import get_user_and_chat
+from app.utils.log_helpers import log_info
 
 
 @router.message(CommandStart())
@@ -12,12 +14,15 @@ async def cmd_start(msg: Message) -> None:
 
     Args:
         msg (Message): Входящее сообщение.
+
+    Returns:
+        None
     """
-    uid = msg.from_user.id if msg.from_user is not None else None
+    uid, _ = get_user_and_chat(msg)
     if uid is not None:
         pop_searches(uid)
         pop_awaiting(uid)
-    logger.info("Команда /start от пользователя %s", str(uid))
+    log_info(logger, "Команда /start", user_id=uid)
     await msg.answer(
         "✨ Отправьте ссылку — скачаю по вашим настройкам.\n"
         "📝 Или отправьте название — покажу список из 25 результатов.\n"
@@ -37,8 +42,12 @@ async def cmd_help(msg: Message) -> None:
 
     Args:
         msg (Message): Сообщение команды.
+
+    Returns:
+        None
     """
-    logger.info("Команда /help от пользователя %s", str(msg.from_user.id if msg.from_user else None))
+    user_id = msg.from_user.id if msg.from_user else None
+    log_info(logger, "Команда /help", user_id=user_id)
     text = (
         "ℹ️ Что умеет бот:\n"
         "1. 🔗 Отправьте ссылку — скачивание пойдёт в выбранном режиме.\n"
@@ -63,15 +72,47 @@ async def cmd_settings(msg: Message) -> None:
 
     Args:
         msg (Message): Сообщение команды.
+
+    Returns:
+        None
     """
-    if msg.from_user is None:
+    user_id, _ = get_user_and_chat(msg)
+    if user_id is None:
         await msg.answer(
             "⚙️ Настройки недоступны для этого типа сообщения.",
             reply_markup=build_main_reply_kb(),
         )
         return
-    logger.info("Открытие настроек пользователем %s", str(msg.from_user.id))
+    log_info(logger, "Открытие настроек", user_id=user_id)
     await msg.answer(
         "⚙️ Настройки типа скачивания:",
-        reply_markup=build_settings_kb(msg.from_user.id).as_markup(),
+        reply_markup=build_settings_kb(user_id).as_markup(),
+    )
+
+
+@router.message(Command("history"))
+async def cmd_history(msg: Message) -> None:
+    """Открывает историю загрузок пользователя (inline keyboard).
+
+    Args:
+        msg (Message): Сообщение команды.
+
+    Returns:
+        None
+    """
+    user_id, _ = get_user_and_chat(msg)
+    if user_id is None:
+        await msg.answer(
+            "📜 История недоступна для этого типа сообщения.",
+            reply_markup=build_main_reply_kb(),
+        )
+        return
+    uid = user_id
+    log_info(logger, "Открытие истории", user_id=uid)
+    items = get_history(uid)
+    if not items:
+        await msg.answer("ℹ️ История пуста.", reply_markup=build_main_reply_kb())
+        return
+    await msg.answer(
+        "📜 Ваша история загрузок:", reply_markup=build_history_kb(uid).as_markup()
     )

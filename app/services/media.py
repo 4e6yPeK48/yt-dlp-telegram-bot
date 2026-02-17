@@ -1,18 +1,15 @@
 import io
-import logging
 import os
+from asyncio import to_thread
 from typing import List, Optional, Set
 
 from PIL import Image, ImageOps
 from PIL.Image import Resampling
 
-from config import (
-    AUDIO_EXTS,
-    VIDEO_EXTS,
-    IMAGE_EXTS,
-    THUMB_SIZE,
-    THUMB_MAX_BYTES
-)
+from app.bot.dispatcher import logger
+from app.utils.log_helpers import log_info, log_warning, log_exception
+
+from app.config import AUDIO_EXTS, VIDEO_EXTS, IMAGE_EXTS, THUMB_SIZE, THUMB_MAX_BYTES
 
 
 def find_files_by_exts(root: str, exts: Set[str]) -> List[str]:
@@ -72,11 +69,11 @@ def find_image_files(root: str) -> List[str]:
 def norm_base(path: str) -> str:
     """Возвращает имя файла без расширения и хвоста после '#'.
 
-        Args:
-            path (str): Путь к файлу.
+    Args:
+        path (str): Путь к файлу.
 
-        Returns:
-            str: Базовое имя.
+    Returns:
+        str: Базовое имя.
     """
     name = os.path.basename(path)
     name = name.split("#", 1)[0]
@@ -87,18 +84,19 @@ def norm_base(path: str) -> str:
 def extract_id_from_base(base: str) -> Optional[str]:
     """Извлекает ID из квадратных скобок.
 
-        Args:
-            base (str): Базовое имя.
+    Args:
+        base (str): Базовое имя.
 
-        Returns:
-            Optional[str]: Извлечённый ID или None.
+    Returns:
+        Optional[str]: Извлечённый ID или None.
     """
     import re
+
     m = re.search(r"\[([0-9A-Za-z_-]{6,})]", base)
     return m.group(1) if m else None
 
 
-def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
+def process_thumbnail_sync(src_path: str, out_dir: str) -> Optional[str]:
     """Готовит миниатюру: 320x320 JPEG ≤ заданного лимита.
 
     Args:
@@ -111,9 +109,7 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
     try:
         with Image.open(src_path) as im:
             im = im.convert("RGB")
-            im = ImageOps.fit(
-                im, THUMB_SIZE, method=Resampling.LANCZOS
-            )
+            im = ImageOps.fit(im, THUMB_SIZE, method=Resampling.LANCZOS)
             quality = 90
             min_q = 40
             step = 5
@@ -136,26 +132,56 @@ def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
                 if size <= THUMB_MAX_BYTES:
                     with open(out_path, "wb") as f:
                         f.write(buf.getvalue())
-                    logging.getLogger("bot").info(
-                        "Подготовлена обложка %s (%dx%d, %d байт, quality=%d)",
-                        out_path,
-                        THUMB_SIZE[0],
-                        THUMB_SIZE[1],
-                        size,
-                        quality,
+                    log_info(
+                        logger,
+                        f"Подготовлена обложка",
+                        extra={
+                            "path": out_path,
+                            "width": THUMB_SIZE[0],
+                            "height": THUMB_SIZE[1],
+                            "size": size,
+                            "quality": quality,
+                        },
                     )
                     return out_path
                 last_size = size
                 quality -= step
-            logging.getLogger("bot").warning(
-                "Не удалось сжать обложку до %d байт, пропускаю (минимальное качество %d, размер %d байт)",
-                THUMB_MAX_BYTES,
-                min_q,
-                last_size or -1,
+            log_warning(
+                logger,
+                f"Не удалось сжать обложку, пропускаю",
+                extra={
+                    "limit": THUMB_MAX_BYTES,
+                    "min_q": min_q,
+                    "last_size": last_size or -1,
+                },
             )
             return None
     except Exception as e:
-        logging.getLogger("bot").warning(
-            "Не удалось обработать обложку %s: %s", src_path, e
+        log_exception(
+            logger,
+            f"Не удалось обработать обложку",
+            extra={"path": src_path, "err": str(e)},
+        )
+        return None
+
+
+async def process_thumbnail(src_path: str, out_dir: str) -> Optional[str]:
+    """
+    Асинхронно готовит миниатюру: 320x320 JPEG ≤ заданного лимита.
+
+    Args:
+        src_path (str): Исходный файл.
+        out_dir (str): Директория назначения.
+
+    Returns:
+        Optional[str]: Путь к миниатюре или None.
+    """
+    try:
+        return await to_thread(process_thumbnail_sync, src_path, out_dir)
+    except Exception as e:
+        log_exception(
+            logger,
+            f"Ошибка при создании миниатюры",
+            extra={"path": src_path, "err": str(e)},
         )
         return None

@@ -20,6 +20,18 @@ def make_rotating(
     level: int,
     fmt: logging.Formatter,
 ) -> TimedRotatingFileHandler:
+    """
+    Создаёт ротационный файловый обработчик логов.
+
+    Args:
+        log_dir (str): Директория для файлов логов.
+        path (str): Имя файла лога.
+        level (int): Уровень логирования.
+        fmt (logging.Formatter): Форматтер для логов.
+
+    Returns:
+        TimedRotatingFileHandler: Настроенный обработчик логов.
+    """
     handler = TimedRotatingFileHandler(
         filename=os.path.join(log_dir, path),
         when="midnight",
@@ -37,7 +49,17 @@ def setup_logging(log_dir: str = "logs") -> None:
     Args:
         log_dir (str): Директория для файлов логов.
     """
-    os.makedirs(log_dir, exist_ok=True)
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except PermissionError:
+        fallback = "/tmp/logs"
+        try:
+            os.makedirs(fallback, exist_ok=True)
+            log_dir = fallback
+        except Exception:
+
+            log_dir = None
+
     fmt = logging.Formatter(
         "%(asctime)s %(levelname)s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",

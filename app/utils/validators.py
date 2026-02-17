@@ -12,7 +12,7 @@ def is_url(text: str) -> bool:
         bool: True, если строка похожа на URL, иначе False.
     """
     with suppress(Exception):
-        u = urlparse(text.strip())
+        u = urlparse((text or "").strip())
         return u.scheme in {"http", "https"} and bool(u.netloc)
     return False
 
@@ -30,10 +30,7 @@ def is_youtube_url(url: str) -> bool:
         host = (urlparse(url).netloc or "").lower()
     except Exception:
         return False
-    return any(
-        h in host
-        for h in ("youtube.", "youtu.be", "music.youtube.")
-    )
+    return any(h in host for h in ("youtube.", "youtu.be", "music.youtube."))
 
 
 def is_audio_platform(url: str) -> bool:
