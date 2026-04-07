@@ -29,6 +29,9 @@ DURATION_LIMIT_SEC: int = 30 * 60
 YTDLP_THREAD_TIMEOUT: int = 10 * 60  # seconds
 TELETHON_UPLOAD_TIMEOUT: int = 10 * 60  # seconds, default 10 minutes
 
+# yt-dlp JS runtime selection
+YTDLP_JS_RUNTIME: str = os.getenv("YTDLP_JS_RUNTIME", "auto").strip().lower() or "auto"
+
 # Safety cap for single downloaded file (default 2 GiB)
 MAX_FILE_MB: int = int(os.getenv("MAX_FILE_MB", "2048"))  # megabytes
 MAX_FILE_BYTES: int = MAX_FILE_MB * 1024 * 1024

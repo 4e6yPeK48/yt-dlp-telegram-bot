@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 from contextlib import suppress
+from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -16,6 +17,7 @@ from app.config import (
     DURATION_LIMIT_SEC,
     CONCURRENT_DOWNLOADS,
     YTDLP_THREAD_TIMEOUT,
+    YTDLP_JS_RUNTIME,
     MAX_FILE_BYTES,
     SERVER_COOKIES_MAP,
     SERVER_COOKIES_DIR,
@@ -80,6 +82,48 @@ def decide_effective_mode(user_mode: str, url: str) -> str:
     if user_mode == "auto":
         return "audio" if is_audio_platform(url) else "video"
     return user_mode
+
+
+_JS_RUNTIME_EXECUTABLES: Dict[str, Tuple[str, ...]] = {
+    "node": ("node", "nodejs"),
+    "deno": ("deno",),
+    "bun": ("bun",),
+    "quickjs": ("qjs", "quickjs"),
+}
+
+
+@lru_cache(maxsize=1)
+def resolve_js_runtimes() -> Dict[str, Dict[str, str]]:
+    """Возвращает первый доступный JS runtime для yt-dlp.
+
+    Приоритет можно переопределить через `YTDLP_JS_RUNTIME`:
+    - `auto` (по умолчанию) — проверять `node`, `deno`, `bun`, `quickjs`
+    - любое из этих значений — искать только указанный runtime
+    """
+
+    preferred = YTDLP_JS_RUNTIME
+    candidates = (
+        (preferred,)
+        if preferred != "auto"
+        else tuple(_JS_RUNTIME_EXECUTABLES.keys())
+    )
+
+    for runtime in candidates:
+        executables = _JS_RUNTIME_EXECUTABLES.get(runtime)
+        if not executables:
+            continue
+        for executable in executables:
+            path = shutil.which(executable)
+            if path:
+                return {runtime: {"path": path}}
+    return {}
+
+
+def _with_js_runtimes(ydl_opts: Dict[str, Any]) -> Dict[str, Any]:
+    js_runtimes = resolve_js_runtimes()
+    if js_runtimes:
+        ydl_opts["js_runtimes"] = js_runtimes
+    return ydl_opts
 
 
 class YTDLPExtractor:
@@ -147,6 +191,7 @@ class YTDLPExtractor:
             "noplaylist": True,
             "default_search": "ytsearch",
         }
+        _with_js_runtimes(ydl_opts)
         if cookies_path and await asyncio.to_thread(
             os.path.exists, cookies_path
         ):  # mypy: ignore
@@ -181,6 +226,7 @@ class YTDLPExtractor:
             "playlist_items": "1",
             "logger": logging.getLogger("yt_dlp"),
         }
+        _with_js_runtimes(ydl_opts)
         if cookies_path and await asyncio.to_thread(
             os.path.exists, cookies_path
         ):  # mypy: ignore
@@ -449,6 +495,7 @@ class YTDLPDownloader:
                 "match_filter": make_duration_match_filter(DURATION_LIMIT_SEC),
                 **extra,
             }
+            _with_js_runtimes(ydl_opts)
             if cookies_path and await asyncio.to_thread(
                 os.path.exists, cookies_path
             ):  # mypy: ignore

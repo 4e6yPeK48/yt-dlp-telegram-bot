@@ -32,6 +32,7 @@ cookies.
     - `BOT_TOKEN` — токен Telegram‑бота (обязательно)
     - опционально: `TELETHON_API_ID`, `TELETHON_API_HASH`, `TELETHON_SESSION`
     - при использовании серверных cookies: `SERVER_COOKIES_SOURCES_JSON`
+    - для `yt-dlp` желательно иметь JS runtime в `PATH` (`node`, `deno`, `bun` или `qjs`); при необходимости можно задать `YTDLP_JS_RUNTIME=node`
 3. Запуск:
    ```bash
    python main.py
@@ -64,6 +65,8 @@ cookies.
    - Поместите необходимые секреты в `~/ytbot/.env`. Храните этот файл в приватном доступе.
 
 2. (Опционально) При необходимости отредактируйте другие переменные окружения, используемые проектом (см. `config.py` на GitHub).
+
+> В контейнере `nodejs` уже устанавливается через `Dockerfile`, поэтому предупреждение про отсутствие JS runtime обычно исчезает.
 
 ### Запуск контейнера
 - Скачайте образ и запустите (в фоне, с политикой перезапуска, используя `--env-file`):
@@ -233,6 +236,7 @@ poetry export -f requirements.txt -o requirements.txt --without-hashes --dev
 - `MAX_FILE_MB` (жёсткий лимит на скачиваемый файл)
 - `TG_MAX_UPLOAD_MB` (лимит бота для переключения на Telethon)
 - `SERVER_COOKIES_SOURCES_JSON` и `SERVER_COOKIES_MAP` — для серверных cookies
+- `YTDLP_JS_RUNTIME` — выбор JS runtime для `yt-dlp` (`auto`, `node`, `deno`, `bun`, `quickjs`)
 
 Каталоги cookies и серверных cookies: `cookies/` и `server_cookies/` (создаются автоматически).
 
